@@ -7,15 +7,11 @@ CRDT Notes er en liten nettleserbasert teksteditor for konfliktfri replikering m
 
 ## Introduksjon
 
-Målet er å vise hvordan enkle Conflict-free Replicated Data Types kan implementeres uten eksterne CRDT-biblioteker.
+## Introduksjon
 
-C++-delen modellerer et delt dokument med:
+Prosjektet demonstrerer hvordan enkle Conflict-free Replicated Data Types (CRDT-er) kan brukes til å synkronisere tekst mellom flere klienter uten sentral konfliktløsning. Løsningen består av en liten C++20-implementasjon av CRDT-strukturer og en nettleserbasert editor skrevet i HTML og JavaScript med synkronisering over WebSocket.
 
-- `LwwRegister<T>` for last-writer-wins-felter.
-- `AwSet<T>` for add-wins observed-remove set.
-- `RgaText` for tekstsekvenser der hvert tegn har operasjons-ID, referanse til forrige element og tombstone ved sletting.
-
-Webeditoren bruker samme RGA-idé i JavaScript. Serveren lagrer en append-only operasjonslogg og sender hele loggen til klientene ved tilkobling, etter nye operasjoner og ved periodiske sync-forespørsler.
+Målet er først og fremst pedagogisk: å vise hvordan Lamport-klokker, add-wins-sett og RGA-sekvenser kan brukes til å oppnå deterministisk konvergens mellom replikater.
 
 ## Innhold
 
@@ -191,13 +187,22 @@ Testene bruker `assert` fra standardbiblioteket og feiler dersom CRDT-ene ikke k
 
 C++-kjernen ligger i `crdt.cpp` og består hovedsakelig av:
 
-- `crdt::LamportClock`
-- `crdt::LwwRegister<T>`
-- `crdt::AwSet<T>`
-- `crdt::RgaText`
-- `crdt::Replica`
+- `LamportClock`  
+  Genererer monotone operasjons-ID-er på formen `counter@replica`.
 
-Webeditoren har en liten JavaScript-implementasjon av `RgaText` direkte i `editor.html`, og WebSocket-serveren ligger i `server.js`.
+- `LwwRegister<T>`  
+  Last-writer-wins-register der den nyeste operasjonen overskriver eldre verdier.
+
+- `AwSet<T>`  
+  Add-wins observed-remove set der samtidige inserts vinner over deletes.
+
+- `RgaText`  
+  Replicated Growable Array for sekvensiell tekstredigering med inserts, deletes og tombstones.
+
+- `Replica`  
+  Kombinerer klokke og CRDT-strukturer til én dokumentreplika.
+
+Webeditoren implementerer en tilsvarende `RgaText` i `editor.html`, mens synkronisering og WebSocket-handshake håndteres i `server.js`.
 
 ## Ekstern informasjon og kode
 
