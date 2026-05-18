@@ -1,10 +1,7 @@
 # CRDT Notes
-
 CRDT Notes er en liten nettleserbasert teksteditor for konfliktfri replikering mellom flere noder. Løsningen består av en C++20 proof of concept for CRDT-kjernen og en enkel HTML/JavaScript-editor med HTTP/WebSocket-server. Nettleserklientene kan gjøre lokale endringer uavhengig av hverandre og konvergerer automatisk via serverens operasjonslogg.
 
-Siste CI/CD-kjøring: ikke konfigurert.
-
-## GitHub-repository
+### GitHub-repository
 
 [dmtrang13/idatt2104-CRDT-Notes](https://github.com/dmtrang13/idatt2104-CRDT-Notes.git)
 
@@ -22,14 +19,14 @@ Webeditoren bruker samme RGA-idé i JavaScript. Serveren lagrer en append-only o
 
 ## Innhold
 
-- [Implementert funksjonalitet](#implementert-funksjonalitet)
+ [Implementert funksjonalitet](#implementert-funksjonalitet)
 - [Avhengigheter](#avhengigheter)
 - [Installasjon](#installasjon)
 - [Bruk](#bruk)
 - [Testing](#testing)
 - [API-dokumentasjon](#api-dokumentasjon)
-- [Ekstern informasjon og kode](#ekstern-informasjon-og-kode)
 - [Fremtidig arbeid](#fremtidig-arbeid)
+- [Ekstern informasjon og kode](#ekstern-informasjon-og-kode)
 
 ## Implementert funksjonalitet
 
@@ -45,7 +42,7 @@ Webeditoren bruker samme RGA-idé i JavaScript. Serveren lagrer en append-only o
 
 ## Avhengigheter
 
-- En C++20-kompatibel kompilator:
+-- En C++20-kompatibel kompilator:
   - Windows: MSYS2 UCRT64 med GCC.
   - Linux: GCC 10+ eller Clang 12+.
   - macOS: Apple Clang 13+ eller nyere Clang installert via Homebrew.
@@ -61,7 +58,7 @@ Serveren bruker bare innebygde Node-moduler: `fs`, `path`, `net` og `crypto`.
 Klon eller åpne prosjektmappen og gå til repoet:
 
 ```powershell
-cd nettverks/CRDT/idatt2104-CRDT
+cd ../idatt2104-CRDT
 ```
 
 ### Windows med MSYS2 UCRT64
@@ -88,7 +85,7 @@ sudo apt install build-essential cmake ninja-build nodejs npm
 Bygg og test med Linux-preseten:
 
 ```sh
-cd nettverks/CRDT/idatt2104-CRDT
+cd ../idatt2104-CRDT
 cmake --preset linux-debug
 cmake --build --preset linux-debug
 ctest --test-dir build-linux --output-on-failure
@@ -107,7 +104,7 @@ brew install cmake ninja node
 Bygg og test med macOS-preseten:
 
 ```sh
-cd nettverks/CRDT/idatt2104-CRDT
+cd ../idatt2104-CRDT
 cmake --preset macos-debug
 cmake --build --preset macos-debug
 ctest --test-dir build-macos --output-on-failure
@@ -140,7 +137,7 @@ clang++ -std=c++20 -Wall -Wextra -Wpedantic crdt.cpp -o crdt_notes
 Start webeditoren:
 
 ```sh
-cd nettverks/CRDT/idatt2104-CRDT
+cd ../idatt2104-CRDT
 node server.js
 ```
 
@@ -189,7 +186,7 @@ ctest --test-dir build-ucrt --output-on-failure
 ```sh
 ctest --test-dir build-linux --output-on-failure
 ctest --test-dir build-macos --output-on-failure
-```
+``
 
 Testene bruker `assert` fra standardbiblioteket og feiler dersom CRDT-ene ikke konvergerer.
 
@@ -205,14 +202,6 @@ Det finnes foreløpig ingen generert API-dokumentasjon. De viktigste klassene li
 
 Webeditoren har en liten JavaScript-implementasjon av `RgaText` direkte i `editor.html`, og WebSocket-serveren ligger i `server.js`.
 
-
-## Ekstern informasjon og kode
-
-Implementasjonen bygger på allment kjente CRDT-prinsipper: Lamport timestamps, last-writer-wins register, observed-remove/add-wins set og RGA-sekvenser. WebSocket-handshake og frame-parsing er skrevet med Node sine standardmoduler etter samme prinsipp som øving 6 i dette prosjektet.
-
-Det brukes ingen eksterne CRDT-biblioteker eller kopiert tredjepartskode.
-
-
 ## Fremtidig arbeid
 
 - Dele C++-CRDT-kjernen med webserveren, for eksempel via et API eller WebAssembly.
@@ -221,3 +210,12 @@ Det brukes ingen eksterne CRDT-biblioteker eller kopiert tredjepartskode.
 - Komprimering eller garbage collection av tombstones i AWSet og RGA.
 - Mer testdekning, inkludert tilfeldige operasjonsrekkefølger og flere replikater.
 - Separere bibliotek, demo og tester i egne filer dersom løsningen vokser.
+
+## Ekstern informasjon og kode
+
+Implementasjonen bygger på allment kjente CRDT-prinsipper: Lamport timestamps, last-writer-wins register, observed-remove/add-wins set og RGA-sekvenser. WebSocket-handshake og frame-parsing er skrevet med Node sine standardmoduler etter samme prinsipp som øving 6 i dette prosjektet.
+
+Det brukes ingen eksterne CRDT-biblioteker eller kopiert tredjepartskode.
+eser med WebSocket-støtte: brukes til `editor.html`.
+
+Det brukes ingen eksterne CRDT-biblioteker eller tredjeparts kode i implementasjonen.
