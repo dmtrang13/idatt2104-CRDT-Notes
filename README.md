@@ -1,8 +1,11 @@
 # CRDT Notes
-
 CRDT Notes er en liten nettleserbasert teksteditor for konfliktfri replikering mellom flere noder. Løsningen består av en C++20 proof of concept for CRDT-kjernen og en enkel HTML/JavaScript-editor med HTTP/WebSocket-server. Nettleserklientene kan gjøre lokale endringer uavhengig av hverandre og konvergerer automatisk via serverens operasjonslogg.
 
 Siste CI/CD-kjøring: ikke konfigurert.
+
+## Bidragsytere
+
+## GitHub Repository
 
 ## Introduksjon
 
@@ -12,7 +15,20 @@ Målet er å vise hvordan flere enkle Conflict-free Replicated Data Types kan im
 - `AwSet<T>` er et add-wins observed-remove set der samtidige `add`-operasjoner vinner over en `remove` som ikke har observert dem.
 - `RgaText` er en enkel Replicated Growable Array for tekst, der tegn lagres med operasjons-ID og referanse til forrige element.
 
-Web-delen bruker samme hovedidé for tekstfeltet: hvert tegn er et RGA-element med operasjons-ID, referanse til forrige element og tombstone ved sletting. Serveren lagrer en append-only operasjonslogg og sender hele loggen til klientene ved tilkobling, etter hver ny operasjon og ved periodiske sync-forespørsler.
+Web-delen bruker samme hovedidé for tekstfeltet: hvert tegn er et RGA-element med operasjons-ID, referanse til forrige element og tombstone ved sletting. Serveren lagrer en append-only-operasjonslogg og sender hele loggen til klientene ved tilkobling, etter hver ny operasjon og ved periodiske sync-forespørsler.
+
+## Innholdsfortegnelse 
+- [Bidragsytere](#bidragsytere)
+- [Introduksjon](#introduksjon)
+- [Innholdsfortegnelse](#innholdsfortegnelse)
+- [Tech Stack](#tech-stack)
+- [Bruk](#bruk)
+- [Implementert funksjonalitet](#implementerte-funksjonalitet)
+- [Instalasjon](#installasjon)
+- [Testing](#testing)
+- [API Dokumentasjon](#api-dokumentasjon)
+- [Bruk Av Ekstern Informasjon/Kode](#bruk-av-ekstern-informasjon/kode)
+- [Fremtidig arbeid](#fremtidig-arbeid)
 
 ## Implementert funksjonalitet
 
@@ -25,26 +41,7 @@ Web-delen bruker samme hovedidé for tekstfeltet: hvert tegn er et RGA-element m
 - Kolonnevis visning av RGA-operasjoner i webgrensesnittet: `op_id`, `ref_id`, `char` og `removed`.
 - Innebygde tester som sjekker konvergens for alle CRDT-typene.
 - Kolonnevis eksport av RGA-operasjoner fra C++-kjernen: `op_id`, `ref_id`, `char` og `removed`.
-
-## Fremtidig arbeid
-
-- Dele C++-CRDT-kjernen med webserveren, for eksempel via et eget API eller WebAssembly.
-- Bedre konfliktbevaring for store tekstendringer i nettleseren. Nå oversettes `textarea`-diff til tegnoperasjoner.
-- Persistens av operasjonsloggen til fil eller database. Nå forsvinner webtilstanden når serveren stoppes.
-- Bedre håndtering av Unicode. Nå er `RgaText` tegnbasert med `char`.
-- Komprimering/garbage collection av tombstones i `AwSet` og `RgaText`.
-- Mer komplett testdekning, inkludert tilfeldige operasjonsrekkefølger og flere replikater.
-- Separere bibliotek, demo og tester i egne filer dersom løsningen vokser.
-
-## Eksterne Avhengigheter
-
-- C++20 standardbibliotek: brukes til datastrukturer, sortering, assertions og I/O.
-- CMake 3.20 eller nyere: brukes til bygging.
-- Node.js: brukes til den enkle HTTP/WebSocket-serveren. Serveren bruker bare innebygde Node-moduler: `fs`, `path`, `net` og `crypto`.
-- Nettleser med WebSocket-støtte: brukes til `editor.html`.
-
-Det brukes ingen eksterne CRDT-biblioteker eller tredjeparts kode i implementasjonen.
-
+  
 ## Installasjon
 
 Krav:
@@ -93,7 +90,7 @@ Den kompilerte C++-delen er ikke en egen editor lenger. Den kan kjøres for å v
 .\build-ucrt\crdt_notes.exe
 ```
 
-## Tester
+## Testing
 
 Sjekk JavaScript-serveren for syntaksfeil:
 
@@ -123,4 +120,24 @@ Webeditoren har en liten JavaScript-implementasjon av `RgaText` direkte i `edito
 
 ## Bruk Av Ekstern Informasjon/Kode
 
-Implementasjonen bygger på allment kjente CRDT-prinsipper: Lamport timestamps, last-writer-wins register, observed-remove/add-wins set og RGA-sekvenser. WebSocket-handshake og frame-parsing er skrevet med Node sine standardmoduler etter samme prinsipp som øving 6 i dette prosjektet. Ingen ekstern kildekode eller eksterne CRDT-biblioteker er kopiert inn i prosjektet.
+Implementasjonen bygger på allment kjente CRDT-prinsipper: Lamport-timestamps, last-writer-wins-register, observed-remove/add-wins-set og RGA-sekvenser. WebSocket-handshake og frame-parsing er skrevet med Node sine standardmoduler etter samme prinsipp som øving 6 i dette prosjektet. Ingen ekstern kildekode eller eksterne CRDT-biblioteker er kopiert inn i prosjektet.
+
+
+## Fremtidig arbeid
+
+- Dele C++-CRDT-kjernen med webserveren, for eksempel via et eget API eller WebAssembly.
+- Bedre konfliktbevaring for store tekstendringer i nettleseren. Nå oversettes `textarea`-diff til tegnoperasjoner.
+- Persistens av operasjonsloggen til fil eller database. Nå forsvinner webtilstanden når serveren stoppes.
+- Bedre håndtering av Unicode. Nå er `RgaText` tegnbasert med `char`.
+- Komprimering/garbage collection av tombstones i `AwSet` og `RgaText`.
+- Mer komplett testdekning, inkludert tilfeldige operasjonsrekkefølger og flere replikater.
+- Separere bibliotek, demo og tester i egne filer dersom løsningen vokser.
+
+## Eksterne Avhengigheter
+
+- C++20 standardbibliotek: brukes til datastrukturer, sortering, assertions og I/O.
+- CMake 3.20 eller nyere: brukes til bygging.
+- Node.js: brukes til den enkle HTTP/WebSocket-serveren. Serveren bruker bare innebygde Node-moduler: `fs`, `path`, `net` og `crypto`.
+- Nettleser med WebSocket-støtte: brukes til `editor.html`.
+
+Det brukes ingen eksterne CRDT-biblioteker eller tredjeparts kode i implementasjonen.
