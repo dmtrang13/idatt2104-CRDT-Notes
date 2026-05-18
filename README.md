@@ -58,7 +58,7 @@ Serveren bruker bare innebygde Node-moduler: `fs`, `path`, `net` og `crypto`.
 Klon eller åpne prosjektmappen og gå til repoet:
 
 ```powershell
-cd ../idatt2104-CRDT
+cd ../idatt2104-CRDT-Notes
 ```
 
 ### Windows med MSYS2 UCRT64
@@ -85,7 +85,7 @@ sudo apt install build-essential cmake ninja-build nodejs npm
 Bygg og test med Linux-preseten:
 
 ```sh
-cd ../idatt2104-CRDT
+cd ../idatt2104-CRDT-Notes
 cmake --preset linux-debug
 cmake --build --preset linux-debug
 ctest --test-dir build-linux --output-on-failure
@@ -104,7 +104,7 @@ brew install cmake ninja node
 Bygg og test med macOS-preseten:
 
 ```sh
-cd ../idatt2104-CRDT
+cd ../idatt2104-CRDT-Notes
 cmake --preset macos-debug
 cmake --build --preset macos-debug
 ctest --test-dir build-macos --output-on-failure
@@ -137,7 +137,7 @@ clang++ -std=c++20 -Wall -Wextra -Wpedantic crdt.cpp -o crdt_notes
 Start webeditoren:
 
 ```sh
-cd ../idatt2104-CRDT
+cd ../idatt2104-CRDT-Notes
 node server.js
 ```
 
