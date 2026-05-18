@@ -4,6 +4,10 @@ CRDT Notes er en liten nettleserbasert teksteditor for konfliktfri replikering m
 
 Siste CI/CD-kjøring: ikke konfigurert.
 
+## GitHub-repository
+
+[dmtrang13/idatt2104-CRDT-Notes](https://github.com/dmtrang13/idatt2104-CRDT-Notes.git)
+
 ## Introduksjon
 
 Målet er å vise hvordan enkle Conflict-free Replicated Data Types kan implementeres uten eksterne CRDT-biblioteker.
@@ -41,9 +45,12 @@ Webeditoren bruker samme RGA-idé i JavaScript. Serveren lagrer en append-only o
 
 ## Avhengigheter
 
-- MSYS2 UCRT64 med GCC som støtter C++20.
+- En C++20-kompatibel kompilator:
+  - Windows: MSYS2 UCRT64 med GCC.
+  - Linux: GCC 10+ eller Clang 12+.
+  - macOS: Apple Clang 13+ eller nyere Clang installert via Homebrew.
 - CMake 3.20 eller nyere.
-- Ninja, brukt av CMake-preseten.
+- Ninja, brukt av CMake-presetene.
 - Node.js 18 eller nyere.
 - En moderne nettleser med WebSocket-støtte.
 
@@ -51,10 +58,17 @@ Serveren bruker bare innebygde Node-moduler: `fs`, `path`, `net` og `crypto`.
 
 ## Installasjon
 
+Klon eller åpne prosjektmappen og gå til repoet:
+
+```powershell
+cd nettverks/CRDT/idatt2104-CRDT
+```
+
+### Windows med MSYS2 UCRT64
+
 Anbefalt oppsett på denne maskinen er MSYS2 UCRT64-preseten:
 
 ```powershell
-cd nettverks\CRDT\idatt2104-CRDT
 cmake --preset msys-ucrt
 cmake --build --preset msys-ucrt
 ctest --test-dir build-ucrt --output-on-failure
@@ -62,20 +76,71 @@ ctest --test-dir build-ucrt --output-on-failure
 
 Preseten bygger i `build-ucrt` og setter `C:\msys64\ucrt64\bin` først i `PATH`. Det unngår DLL-konflikter hvis andre verktøykjeder, for eksempel STM32CubeCLT, ligger tidligere i `PATH`.
 
-Direkte kompilering uten CMake:
+### Linux
+
+Installer typiske avhengigheter på Debian/Ubuntu:
+
+```sh
+sudo apt update
+sudo apt install build-essential cmake ninja-build nodejs npm
+```
+
+Bygg og test med Linux-preseten:
+
+```sh
+cd nettverks/CRDT/idatt2104-CRDT
+cmake --preset linux-debug
+cmake --build --preset linux-debug
+ctest --test-dir build-linux --output-on-failure
+```
+
+Hvis distribusjonen din har en gammel Node.js-versjon i pakkebrønnen, installer Node.js 18+ via NodeSource, `nvm`, eller distribusjonens nyere pakkekilde.
+
+### macOS
+
+Installer avhengigheter med Homebrew:
+
+```sh
+brew install cmake ninja node
+```
+
+Bygg og test med macOS-preseten:
+
+```sh
+cd nettverks/CRDT/idatt2104-CRDT
+cmake --preset macos-debug
+cmake --build --preset macos-debug
+ctest --test-dir build-macos --output-on-failure
+```
+
+Apple Clang følger normalt med Xcode Command Line Tools. Installer dem hvis `clang++` mangler:
+
+```sh
+xcode-select --install
+```
+
+### Direkte kompilering
+
+Direkte kompilering uten CMake fungerer også:
 
 ```powershell
 g++ -std=c++20 -Wall -Wextra -Wpedantic crdt.cpp -o crdt_notes
 ```
 
-`CMakePresets.json` inneholder også presets for andre miljøer, men `msys-ucrt` er den anbefalte og verifiserte flyten for dette prosjektet.
+På macOS kan kommandoen være:
+
+```sh
+clang++ -std=c++20 -Wall -Wextra -Wpedantic crdt.cpp -o crdt_notes
+```
+
+`msys-ucrt` er verifisert på denne Windows-maskinen. `linux-debug` og `macos-debug` er lagt inn som portable CMake/Ninja-presets for tilsvarende miljøer.
 
 ## Bruk
 
 Start webeditoren:
 
-```powershell
-cd nettverks\CRDT\idatt2104-CRDT
+```sh
+cd nettverks/CRDT/idatt2104-CRDT
 node server.js
 ```
 
@@ -89,22 +154,41 @@ Skriv i en fane og se at de andre fanene mottar CRDT-operasjonene over WebSocket
 
 Den kompilerte C++-delen er ikke en egen editor. Den kan kjøres for å vise kort bruksinfo:
 
+Windows/MSYS2:
+
 ```powershell
-.\build-ucrt\crdt_notes.exe
+./build-ucrt/crdt_notes.exe
+```
+
+Linux:
+
+```sh
+./build-linux/crdt_notes
+```
+
+macOS:
+
+```sh
+./build-macos/crdt_notes
 ```
 
 ## Testing
 
 Sjekk JavaScript-serveren for syntaksfeil:
 
-```powershell
+```sh
 node --check server.js
 ```
 
-Kjør C++-testene:
+Kjør C++-testene for riktig buildmappe:
 
 ```powershell
 ctest --test-dir build-ucrt --output-on-failure
+```
+
+```sh
+ctest --test-dir build-linux --output-on-failure
+ctest --test-dir build-macos --output-on-failure
 ```
 
 Testene bruker `assert` fra standardbiblioteket og feiler dersom CRDT-ene ikke konvergerer.
