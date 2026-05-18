@@ -1,7 +1,7 @@
 # CRDT Notes
 CRDT Notes er en liten nettleserbasert teksteditor for konfliktfri replikering mellom flere noder. Løsningen består av en C++20 proof of concept for CRDT-kjernen og en enkel HTML/JavaScript-editor med HTTP/WebSocket-server. Nettleserklientene kan gjøre lokale endringer uavhengig av hverandre og konvergerer automatisk via serverens operasjonslogg.
 
-### GitHub-repository
+## GitHub-repository
 
 [dmtrang13/idatt2104-CRDT-Notes](https://github.com/dmtrang13/idatt2104-CRDT-Notes.git)
 
@@ -186,7 +186,7 @@ ctest --test-dir build-ucrt --output-on-failure
 ```sh
 ctest --test-dir build-linux --output-on-failure
 ctest --test-dir build-macos --output-on-failure
-``
+```
 
 Testene bruker `assert` fra standardbiblioteket og feiler dersom CRDT-ene ikke konvergerer.
 
