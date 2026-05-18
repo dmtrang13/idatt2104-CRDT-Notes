@@ -25,8 +25,8 @@ Webeditoren bruker samme RGA-idé i JavaScript. Serveren lagrer en append-only o
 - [Bruk](#bruk)
 - [Testing](#testing)
 - [API-dokumentasjon](#api-dokumentasjon)
-- [Fremtidig arbeid](#fremtidig-arbeid)
 - [Ekstern informasjon og kode](#ekstern-informasjon-og-kode)
+- [Fremtidig arbeid](#fremtidig-arbeid)
 
 ## Implementert funksjonalitet
 
@@ -202,15 +202,6 @@ Det finnes foreløpig ingen generert API-dokumentasjon. De viktigste klassene li
 
 Webeditoren har en liten JavaScript-implementasjon av `RgaText` direkte i `editor.html`, og WebSocket-serveren ligger i `server.js`.
 
-## Fremtidig arbeid
-
-- Dele C++-CRDT-kjernen med webserveren, for eksempel via et API eller WebAssembly.
-- Persistens av operasjonsloggen til fil eller database. Nå forsvinner webtilstanden når serveren stoppes.
-- Bedre Unicode-håndtering. C++-delen bruker fortsatt `char`.
-- Komprimering eller garbage collection av tombstones i AWSet og RGA.
-- Mer testdekning, inkludert tilfeldige operasjonsrekkefølger og flere replikater.
-- Separere bibliotek, demo og tester i egne filer dersom løsningen vokser.
-
 ## Ekstern informasjon og kode
 
 Implementasjonen bygger på allment kjente CRDT-prinsipper: Lamport timestamps, last-writer-wins register, observed-remove/add-wins set og RGA-sekvenser. WebSocket-handshake og frame-parsing er skrevet med Node sine standardmoduler etter samme prinsipp som øving 6 i dette prosjektet.
@@ -219,3 +210,12 @@ Det brukes ingen eksterne CRDT-biblioteker eller kopiert tredjepartskode.
 eser med WebSocket-støtte: brukes til `editor.html`.
 
 Det brukes ingen eksterne CRDT-biblioteker eller tredjeparts kode i implementasjonen.
+
+## Fremtidig arbeid
+
+- Dele C++-CRDT-kjernen med webserveren, for eksempel via et API eller WebAssembly.
+- Persistens av operasjonsloggen til fil eller database. Nå forsvinner webtilstanden når serveren stoppes.
+- Bedre Unicode-håndtering. C++-delen bruker fortsatt `char`.
+- Komprimering eller garbage collection av tombstones i AWSet og RGA.
+- Mer testdekning, inkludert tilfeldige operasjonsrekkefølger og flere replikater.
+- Separere bibliotek, demo og tester i egne filer dersom løsningen vokser.
