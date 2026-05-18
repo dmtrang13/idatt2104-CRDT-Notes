@@ -43,6 +43,11 @@
 build/
 Build/
 build-*/
+*.exe
+*.obj
+*.pdb
+*.log
+
 
 # CMake generated files
 CMakeFiles/
