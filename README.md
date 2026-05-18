@@ -24,7 +24,7 @@ Webeditoren bruker samme RGA-idé i JavaScript. Serveren lagrer en append-only o
 - [Installasjon](#installasjon)
 - [Bruk](#bruk)
 - [Testing](#testing)
-- [API-dokumentasjon](#api-dokumentasjon)
+- [Viktige komponenter](#viktige-komponenter)
 - [Ekstern informasjon og kode](#ekstern-informasjon-og-kode)
 - [Fremtidig arbeid](#fremtidig-arbeid)
 
@@ -85,7 +85,6 @@ sudo apt install build-essential cmake ninja-build nodejs npm
 Bygg og test med Linux-preseten:
 
 ```sh
-cd ../idatt2104-CRDT-Notes
 cmake --preset linux-debug
 cmake --build --preset linux-debug
 ctest --test-dir build-linux --output-on-failure
@@ -104,7 +103,6 @@ brew install cmake ninja node
 Bygg og test med macOS-preseten:
 
 ```sh
-cd ../idatt2104-CRDT-Notes
 cmake --preset macos-debug
 cmake --build --preset macos-debug
 ctest --test-dir build-macos --output-on-failure
@@ -137,7 +135,6 @@ clang++ -std=c++20 -Wall -Wextra -Wpedantic crdt.cpp -o crdt_notes
 Start webeditoren:
 
 ```sh
-cd ../idatt2104-CRDT-Notes
 node server.js
 ```
 
@@ -190,9 +187,9 @@ ctest --test-dir build-macos --output-on-failure
 
 Testene bruker `assert` fra standardbiblioteket og feiler dersom CRDT-ene ikke konvergerer.
 
-## API-dokumentasjon
+## Viktige komponenter
 
-Det finnes foreløpig ingen generert API-dokumentasjon. De viktigste klassene ligger i `crdt.cpp`:
+C++-kjernen ligger i `crdt.cpp` og består hovedsakelig av:
 
 - `crdt::LamportClock`
 - `crdt::LwwRegister<T>`
@@ -205,9 +202,6 @@ Webeditoren har en liten JavaScript-implementasjon av `RgaText` direkte i `edito
 ## Ekstern informasjon og kode
 
 Implementasjonen bygger på allment kjente CRDT-prinsipper: Lamport timestamps, last-writer-wins register, observed-remove/add-wins set og RGA-sekvenser. WebSocket-handshake og frame-parsing er skrevet med Node sine standardmoduler etter samme prinsipp som øving 6 i dette prosjektet.
-
-Det brukes ingen eksterne CRDT-biblioteker eller kopiert tredjepartskode.
-eser med WebSocket-støtte: brukes til `editor.html`.
 
 Det brukes ingen eksterne CRDT-biblioteker eller tredjeparts kode i implementasjonen.
 
