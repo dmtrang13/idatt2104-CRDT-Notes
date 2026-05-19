@@ -1,0 +1,11 @@
+.git
+.github
+backend/build*/
+frontend/node_modules
+frontend/*.log
+**/CMakeFiles
+**/CMakeCache.txt
+**/*.exe
+**/*.obj
+**/*.pdb
+**/*.log

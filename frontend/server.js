@@ -10,6 +10,68 @@ const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 const clients = new Set();
 const operations = new Map();
+let pgClient = null;
+
+function loadPgClient() {
+  try {
+    return require("pg").Client;
+  } catch (error) {
+    throw new Error(
+      "DATABASE_URL is set, but the pg package is not installed. Run npm install in frontend/."
+    );
+  }
+}
+
+async function initializePersistence() {
+  if (!process.env.DATABASE_URL) {
+    console.log("Persistence: in-memory operation log");
+    return;
+  }
+
+  const Client = loadPgClient();
+  pgClient = new Client({
+    connectionString: process.env.DATABASE_URL,
+  });
+
+  await pgClient.connect();
+  await pgClient.query(`
+    CREATE TABLE IF NOT EXISTS crdt_operations (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL CHECK (type IN ('insert', 'delete')),
+      previous_id TEXT,
+      target_id TEXT,
+      value TEXT,
+      payload JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  const result = await pgClient.query(
+    "SELECT payload FROM crdt_operations ORDER BY created_at ASC, id ASC"
+  );
+  for (const row of result.rows) {
+    operations.set(row.payload.id, row.payload);
+  }
+  console.log(`Persistence: loaded ${operations.size} operations from PostgreSQL`);
+}
+
+async function persistOperation(op) {
+  if (!pgClient) return;
+
+  await pgClient.query(
+    `INSERT INTO crdt_operations (id, type, previous_id, target_id, value, payload)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+     ON CONFLICT (id) DO NOTHING`,
+    [
+      op.id,
+      op.type,
+      op.previous ?? null,
+      op.target ?? null,
+      op.value ?? null,
+      JSON.stringify(op),
+    ]
+  );
+}
 
 function computeAcceptKey(secWebSocketKey) {
   return crypto
@@ -127,14 +189,38 @@ function syncAll() {
   broadcast(syncMessage());
 }
 
-function rememberOperation(op) {
-  if (!op || typeof op.id !== "string" || operations.has(op.id)) {
+function isValidOpId(id) {
+  return typeof id === "string" && /^[0-9]+@[A-Za-z0-9_-]{1,64}$/.test(id);
+}
+
+function isValidOperation(op) {
+  if (!op || typeof op !== "object" || !isValidOpId(op.id)) {
     return false;
   }
-  if (op.type !== "insert" && op.type !== "delete") {
+
+  if (op.type === "insert") {
+    const hasValidPrevious =
+      op.previous === null || op.previous === undefined || isValidOpId(op.previous);
+    return (
+      hasValidPrevious &&
+      typeof op.value === "string" &&
+      [...op.value].length === 1
+    );
+  }
+
+  if (op.type === "delete") {
+    return isValidOpId(op.target);
+  }
+
+  return false;
+}
+
+async function rememberOperation(op) {
+  if (!isValidOperation(op) || operations.has(op.id)) {
     return false;
   }
   operations.set(op.id, op);
+  await persistOperation(op);
   return true;
 }
 
@@ -174,10 +260,6 @@ const httpServer = net.createServer((connection) => {
   });
 });
 
-httpServer.listen(HTTP_PORT, HOST, () => {
-  console.log(`HTTP server listening on http://${HOST || "localhost"}:${HTTP_PORT}`);
-});
-
 const wsServer = net.createServer((connection) => {
   const client = {
     socket: connection,
@@ -186,7 +268,7 @@ const wsServer = net.createServer((connection) => {
   };
   clients.add(client);
 
-  connection.on("data", (data) => {
+  connection.on("data", async (data) => {
     client.buffer = Buffer.concat([client.buffer, data]);
 
     try {
@@ -250,8 +332,15 @@ const wsServer = net.createServer((connection) => {
 
         for (const frame of frames) {
           if (frame.opcode === 0x1) {
-            const message = JSON.parse(frame.payload.toString("utf8"));
-            if (message.type === "op" && rememberOperation(message.op)) {
+            let message;
+            try {
+              message = JSON.parse(frame.payload.toString("utf8"));
+            } catch {
+              send(client, { type: "error", message: "Invalid JSON message" });
+              continue;
+            }
+
+            if (message.type === "op" && (await rememberOperation(message.op))) {
               syncAll();
             } else if (message.type === "sync-request") {
               send(client, syncMessage());
@@ -290,6 +379,23 @@ const wsServer = net.createServer((connection) => {
   });
 });
 
-wsServer.listen(WS_PORT, HOST, () => {
-  console.log(`WebSocket server listening on ws://${HOST || "localhost"}:${WS_PORT}`);
+async function main() {
+  await initializePersistence();
+
+  httpServer.listen(HTTP_PORT, HOST, () => {
+    console.log(
+      `HTTP server listening on http://${HOST || "localhost"}:${HTTP_PORT}`
+    );
+  });
+
+  wsServer.listen(WS_PORT, HOST, () => {
+    console.log(
+      `WebSocket server listening on ws://${HOST || "localhost"}:${WS_PORT}`
+    );
+  });
+}
+
+main().catch((error) => {
+  console.error("Server startup failed:", error.message);
+  process.exit(1);
 });

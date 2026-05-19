@@ -9,7 +9,7 @@ CRDT Notes er en liten nettleserbasert teksteditor for konfliktfri replikering m
 
 ## Introduksjon
 
-Prosjektet demonstrerer hvordan enkle Conflict-free Replicated Data Types (CRDT-er) kan brukes til å synkronisere tekst mellom flere klienter uten sentral konfliktløsning. Løsningen består av en liten C++20-implementasjon av CRDT-strukturer og en nettleserbasert editor skrevet i HTML og JavaScript med synkronisering over WebSocket.
+Prosjektet demonstrerer hvordan enkle Conflict-free Replicated Data Types (CRDT-er) kan brukes til å synkronisere tekst mellom flere klienter uten sentral konfliktløsning. Løsningen består av en liten C++20 CRDT-kjerne i `crdt.hpp` og `crdt.cpp`, en demo/testfil i `crdt_demo.cpp`, og en nettleserbasert editor skrevet i HTML og JavaScript med synkronisering over WebSocket.
 
 Målet er først og fremst pedagogisk: å vise hvordan Lamport-klokker, add-wins-sett og RGA-sekvenser kan brukes til å oppnå deterministisk konvergens mellom replikater.
 
@@ -32,6 +32,7 @@ Målet er først og fremst pedagogisk: å vise hvordan Lamport-klokker, add-wins
 - Enkel HTTP-server og WebSocket-server i `server.js`, inspirert av `oeving6.js` i IDATT2104.
 - Automatisk WebSocket-synkronisering av RGA-operasjoner mellom flere faner.
 - Server-side operasjonslogg som holder klientene synket på `localhost`.
+- Valgfri PostgreSQL-persistens for operasjonsloggen via `DATABASE_URL`.
 - LCS-basert tekst-diff i webeditoren, slik at cut/paste og flytting av tekst bevarer forventet rekkefølge.
 - Kolonnevis visning av RGA-operasjoner i webgrensesnittet: `op_id`, `ref_id`, `char` og `removed`.
 - Innebygde C++-tester for konvergens.
@@ -45,9 +46,11 @@ Målet er først og fremst pedagogisk: å vise hvordan Lamport-klokker, add-wins
 - CMake 3.20 eller nyere.
 - Ninja, brukt av CMake-presetene.
 - Node.js 18 eller nyere.
+- PostgreSQL hvis operasjonsloggen skal lagres permanent.
+- Docker og Docker Compose hvis du vil kjøre webserver og PostgreSQL i containere.
 - En moderne nettleser med WebSocket-støtte.
 
-Serveren bruker bare innebygde Node-moduler: `fs`, `path`, `net` og `crypto`.
+Serveren bruker innebygde Node-moduler for HTTP/WebSocket og pakken `pg` når PostgreSQL-persistens er aktivert.
 
 ## Installasjon
 
@@ -115,13 +118,13 @@ xcode-select --install
 Direkte kompilering uten CMake fungerer også:
 
 ```powershell
-g++ -std=c++20 -Wall -Wextra -Wpedantic crdt.cpp -o crdt_notes
+g++ -std=c++20 -Wall -Wextra -Wpedantic crdt.cpp crdt_demo.cpp -o crdt_notes
 ```
 
 På macOS kan kommandoen være:
 
 ```sh
-clang++ -std=c++20 -Wall -Wextra -Wpedantic crdt.cpp -o crdt_notes
+clang++ -std=c++20 -Wall -Wextra -Wpedantic crdt.cpp crdt_demo.cpp -o crdt_notes
 ```
 
 `msys-ucrt` er verifisert på denne Windows-maskinen. `linux-debug` og `macos-debug` er lagt inn som portable CMake/Ninja-presets for tilsvarende miljøer.
@@ -131,6 +134,8 @@ clang++ -std=c++20 -Wall -Wextra -Wpedantic crdt.cpp -o crdt_notes
 Start webeditoren:
 
 ```sh
+cd frontend
+npm install
 node server.js
 ```
 
@@ -141,6 +146,34 @@ http://localhost:3000
 ```
 
 Skriv i en fane og se at de andre fanene mottar CRDT-operasjonene over WebSocket. Sidepanelet viser RGA-operasjonene i kolonneformat.
+
+Uten ekstra konfigurasjon lagres operasjonsloggen bare i minnet. For PostgreSQL-persistens, opprett tabellen fra `database/schema.sql` og start serveren med `DATABASE_URL`:
+
+```sh
+psql "$DATABASE_URL" -f ../database/schema.sql
+DATABASE_URL="postgres://user:password@localhost:5432/crdt_notes" node server.js
+```
+
+### Docker med PostgreSQL
+
+Hele webdelen kan kjøres med PostgreSQL i Docker Compose:
+
+```sh
+docker compose up --build
+```
+
+Dette starter:
+
+- `postgres` på `localhost:5432`
+- webserveren på `http://localhost:3000`
+- WebSocket-serveren på `ws://localhost:3001`
+
+PostgreSQL-tabellen opprettes automatisk fra `database/schema.sql`, og data lagres i Docker-volumet `postgres_data`. For å starte med tom database:
+
+```sh
+docker compose down -v
+docker compose up --build
+```
 
 Den kompilerte C++-delen er ikke en egen editor. Den kan kjøres for å vise kort bruksinfo:
 
@@ -167,7 +200,8 @@ macOS:
 Sjekk JavaScript-serveren for syntaksfeil:
 
 ```sh
-node --check server.js
+cd frontend
+npm run check
 ```
 
 Kjør C++-testene for riktig buildmappe:
@@ -185,7 +219,7 @@ Testene bruker `assert` fra standardbiblioteket og feiler dersom CRDT-ene ikke k
 
 ## Viktige komponenter
 
-C++-kjernen ligger i `crdt.cpp` og består hovedsakelig av:
+C++-kjernen er delt mellom `crdt.hpp` og `crdt.cpp` og består hovedsakelig av:
 
 - `LamportClock`  
   Genererer monotone operasjons-ID-er på formen `counter@replica`.
@@ -202,7 +236,9 @@ C++-kjernen ligger i `crdt.cpp` og består hovedsakelig av:
 - `Replica`  
   Kombinerer klokke og CRDT-strukturer til én dokumentreplika.
 
-Webeditoren implementerer en tilsvarende `RgaText` i `editor.html`, mens synkronisering og WebSocket-handshake håndteres i `server.js`.
+Webeditoren implementerer en tilsvarende `RgaText` i `editor.html`, mens synkronisering, WebSocket-handshake og valgfri PostgreSQL-persistens håndteres i `server.js`.
+
+`crdt_demo.cpp` inneholder `main()` og de innebygde testene. CMake bygger CRDT-kjernen som biblioteket `crdt_core` og lenker demo-programmet `crdt_notes` mot dette biblioteket.
 
 ## Ekstern informasjon og kode
 
@@ -213,8 +249,7 @@ Det brukes ingen eksterne CRDT-biblioteker eller tredjeparts kode i implementasj
 ## Fremtidig arbeid
 
 - Dele C++-CRDT-kjernen med webserveren, for eksempel via et API eller WebAssembly.
-- Persistens av operasjonsloggen til fil eller database. Nå forsvinner webtilstanden når serveren stoppes.
+- Dokument-/romseparasjon, autentisering og mer komplett operasjonsvalidering.
 - Bedre Unicode-håndtering. C++-delen bruker fortsatt `char`.
 - Komprimering eller garbage collection av tombstones i AWSet og RGA.
 - Mer testdekning, inkludert tilfeldige operasjonsrekkefølger og flere replikater.
-- Separere bibliotek, demo og tester i egne filer dersom løsningen vokser.

@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: crdt_notes
+      POSTGRES_USER: crdt
+      POSTGRES_PASSWORD: crdt
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crdt -d crdt_notes"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: ./frontend
+    environment:
+      HOST: 0.0.0.0
+      HTTP_PORT: 3000
+      WS_PORT: 3001
+      DATABASE_URL: postgres://crdt:crdt@postgres:5432/crdt_notes
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
