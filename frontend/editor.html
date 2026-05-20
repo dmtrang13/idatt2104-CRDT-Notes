@@ -307,6 +307,7 @@
       const urlParams = new URLSearchParams(location.search);
       const documentId = urlParams.get("document_id") || urlParams.get("doc") || "default";
       const wsPort = urlParams.get("ws_port") || "3001";
+      const authToken = urlParams.get("token") || "";
       let counter = 0;
       let localText = "";
       let applyingRemote = false;
@@ -335,6 +336,7 @@
           url.port = wsPort;
         }
         url.searchParams.set("document_id", documentId);
+        if (authToken) url.searchParams.set("token", authToken);
         return url.toString();
       }
 

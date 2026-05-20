@@ -11,10 +11,44 @@ const DEFAULT_DOCUMENT_ID = "default";
 const MAX_FRAME_PAYLOAD_BYTES = Number(process.env.MAX_FRAME_PAYLOAD_BYTES || 1024 * 1024);
 const MAX_MESSAGE_BYTES = Number(process.env.MAX_MESSAGE_BYTES || 256 * 1024);
 const MAX_OP_VALUE_CHARS = Number(process.env.MAX_OP_VALUE_CHARS || 1);
+const AUTH_TOKEN = process.env.AUTH_TOKEN;
+const DOCUMENT_TOKENS = parseDocumentTokens(process.env.DOCUMENT_TOKENS);
+const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 
 const clients = new Set();
 const documents = new Map();
 let pgClient = null;
+
+function parseDocumentTokens(raw) {
+  if (!raw) return new Map();
+  try {
+    const parsed = JSON.parse(raw);
+    return new Map(
+      Object.entries(parsed).filter(
+        ([documentId, token]) => isValidDocumentId(documentId) && typeof token === "string"
+      )
+    );
+  } catch {
+    return new Map(
+      raw
+        .split(",")
+        .map((entry) => entry.split("="))
+        .filter(
+          ([documentId, token]) => isValidDocumentId(documentId) && typeof token === "string"
+        )
+    );
+  }
+}
+
+function parseAllowedOrigins(raw) {
+  if (!raw) return null;
+  return new Set(
+    raw
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean)
+  );
+}
 
 function operationsFor(documentId) {
   if (!documents.has(documentId)) {
@@ -41,6 +75,90 @@ function parseDocumentIdFromPath(requestPath) {
   } catch {
     return DEFAULT_DOCUMENT_ID;
   }
+}
+
+function parseRequestUrl(requestPath) {
+  try {
+    return new URL(requestPath, "http://localhost");
+  } catch {
+    return null;
+  }
+}
+
+function tokenForDocument(documentId) {
+  return DOCUMENT_TOKENS.get(documentId) || AUTH_TOKEN || null;
+}
+
+function timingSafeEqualString(left, right) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return (
+    leftBuffer.length === rightBuffer.length &&
+    crypto.timingSafeEqual(leftBuffer, rightBuffer)
+  );
+}
+
+function authorizeRequest(documentId, headers, url) {
+  const requiredToken = tokenForDocument(documentId);
+  if (!requiredToken) {
+    return true;
+  }
+
+  const authorization = headers.authorization || "";
+  const bearerPrefix = "Bearer ";
+  const suppliedToken = authorization.startsWith(bearerPrefix)
+    ? authorization.slice(bearerPrefix.length)
+    : url.searchParams.get("token") || "";
+
+  return timingSafeEqualString(suppliedToken, requiredToken);
+}
+
+function isOriginAllowed(origin) {
+  return !ALLOWED_ORIGINS || !origin || ALLOWED_ORIGINS.has(origin);
+}
+
+function parseHeaders(lines) {
+  const headers = {};
+  for (const line of lines) {
+    const idx = line.indexOf(":");
+    if (idx !== -1) {
+      headers[line.slice(0, idx).trim().toLowerCase()] = line
+        .slice(idx + 1)
+        .trim();
+    }
+  }
+  return headers;
+}
+
+function httpResponse(status, body = "", headers = {}) {
+  const payload = Buffer.from(body, "utf8");
+  const reason = {
+    200: "OK",
+    400: "Bad Request",
+    401: "Unauthorized",
+    403: "Forbidden",
+    404: "Not Found",
+    405: "Method Not Allowed",
+    500: "Internal Server Error",
+  }[status] || "Error";
+
+  const headerLines = {
+    "Content-Length": payload.length,
+    "X-Content-Type-Options": "nosniff",
+    ...headers,
+  };
+
+  return Buffer.concat([
+    Buffer.from(
+      `HTTP/1.1 ${status} ${reason}\r\n` +
+        Object.entries(headerLines)
+          .map(([name, value]) => `${name}: ${value}\r\n`)
+          .join("") +
+        "\r\n",
+      "utf8"
+    ),
+    payload,
+  ]);
 }
 
 function loadPgClient() {
@@ -229,12 +347,6 @@ function send(client, message) {
   }
 }
 
-function broadcast(message) {
-  for (const client of clients) {
-    send(client, message);
-  }
-}
-
 function syncMessage(documentId) {
   return {
     type: "sync",
@@ -257,12 +369,20 @@ function isValidOpId(id) {
   return typeof id === "string" && /^[0-9]+@[A-Za-z0-9_-]{1,64}$/.test(id);
 }
 
+function hasOnlyKeys(object, keys) {
+  const allowed = new Set(keys);
+  return Object.keys(object).every((key) => allowed.has(key));
+}
+
 function isValidOperation(op) {
-  if (!op || typeof op !== "object" || !isValidOpId(op.id)) {
+  if (!op || typeof op !== "object" || Array.isArray(op) || !isValidOpId(op.id)) {
     return false;
   }
 
   if (op.type === "insert") {
+    if (!hasOnlyKeys(op, ["type", "id", "previous", "value"])) {
+      return false;
+    }
     const hasValidPrevious =
       op.previous === null || op.previous === undefined || isValidOpId(op.previous);
     return (
@@ -273,14 +393,33 @@ function isValidOperation(op) {
   }
 
   if (op.type === "delete") {
-    return isValidOpId(op.target);
+    return hasOnlyKeys(op, ["type", "id", "target"]) && isValidOpId(op.target);
   }
 
   return false;
 }
 
+function canonicalOperation(op) {
+  if (op.type === "insert") {
+    return {
+      type: "insert",
+      id: op.id,
+      previous: op.previous ?? null,
+      value: op.value,
+    };
+  }
+  return {
+    type: "delete",
+    id: op.id,
+    target: op.target,
+  };
+}
+
 function sameOperation(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return (
+    JSON.stringify(canonicalOperation(left)) ===
+    JSON.stringify(canonicalOperation(right))
+  );
 }
 
 async function rememberOperation(documentId, op) {
@@ -312,32 +451,46 @@ const httpServer = net.createServer((connection) => {
 
   connection.once("data", (reqBuf) => {
     const req = reqBuf.toString("utf8");
-    const [requestLine] = req.split("\r\n");
+    const [requestLine, ...headerLines] = req.split("\r\n");
     const [method, urlPath] = requestLine.split(" ");
+    const headers = parseHeaders(headerLines);
+    const url = parseRequestUrl(urlPath || "/");
 
-    if (method !== "GET") {
-      connection.end("HTTP/1.1 405 Method Not Allowed\r\n\r\n");
+    if (!url) {
+      connection.end(httpResponse(400, "Bad request"));
       return;
     }
 
-    const normalizedPath =
-      urlPath === "/" ? "/editor.html" : decodeURIComponent(urlPath);
+    if (method !== "GET") {
+      connection.end(httpResponse(405, "Method not allowed"));
+      return;
+    }
+
+    const documentId = parseDocumentIdFromPath(urlPath);
+    if (!authorizeRequest(documentId, headers, url)) {
+      connection.end(httpResponse(401, "Unauthorized"));
+      return;
+    }
+
+    const normalizedPath = url.pathname === "/" ? "/editor.html" : url.pathname;
     if (normalizedPath !== "/editor.html") {
-      connection.end("HTTP/1.1 404 Not Found\r\n\r\nNot found");
+      connection.end(httpResponse(404, "Not found"));
       return;
     }
 
     const filePath = path.join(__dirname, "editor.html");
-    const content = fs.readFileSync(filePath);
-    connection.write(
-      "HTTP/1.1 200 OK\r\n" +
-        "Content-Type: text/html; charset=utf-8\r\n" +
-        "Content-Length: " +
-        content.length +
-        "\r\n\r\n"
-    );
-    connection.write(content);
-    connection.end();
+    try {
+      const content = fs.readFileSync(filePath);
+      connection.end(
+        httpResponse(200, content.toString("utf8"), {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+          "Content-Security-Policy": "default-src 'self'; connect-src 'self' ws: wss:; style-src 'unsafe-inline' 'self'; script-src 'unsafe-inline' 'self'",
+        })
+      );
+    } catch {
+      connection.end(httpResponse(500, "Server error"));
+    }
   });
 });
 
@@ -367,17 +520,14 @@ const wsServer = net.createServer((connection) => {
           return;
         }
         const [, requestPath] = requestLine.split(" ");
+        const url = parseRequestUrl(requestPath || "/");
+        if (!url) {
+          connection.end("HTTP/1.1 400 Bad Request\r\n\r\n");
+          return;
+        }
         client.documentId = parseDocumentIdFromPath(requestPath);
 
-        const headers = {};
-        for (const line of lines) {
-          const idx = line.indexOf(":");
-          if (idx !== -1) {
-            headers[line.slice(0, idx).trim().toLowerCase()] = line
-              .slice(idx + 1)
-              .trim();
-          }
-        }
+        const headers = parseHeaders(lines);
 
         const upgrade = (headers.upgrade || "").toLowerCase();
         const connectionHeader = (headers.connection || "").toLowerCase();
@@ -390,6 +540,14 @@ const wsServer = net.createServer((connection) => {
           version !== "13"
         ) {
           connection.end("HTTP/1.1 400 Bad Request\r\n\r\n");
+          return;
+        }
+        if (!isOriginAllowed(headers.origin)) {
+          connection.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+          return;
+        }
+        if (!authorizeRequest(client.documentId, headers, url)) {
+          connection.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
           return;
         }
 
@@ -473,6 +631,11 @@ const wsServer = net.createServer((connection) => {
 
 async function main() {
   await initializePersistence();
+  console.log(
+    `Security: ${AUTH_TOKEN ? "global token enabled" : "open demo mode"}, ` +
+      `${DOCUMENT_TOKENS.size} document token(s), ` +
+      `${ALLOWED_ORIGINS ? `${ALLOWED_ORIGINS.size} allowed origin(s)` : "all origins allowed"}`
+  );
 
   httpServer.listen(HTTP_PORT, HOST, () => {
     console.log(
