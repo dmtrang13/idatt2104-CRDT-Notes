@@ -208,7 +208,8 @@
       class RgaText {
         constructor() {
           this.elements = new Map();
-          this.deletes = new Set();
+          this.deletes = new Map();
+          this.deleteTargets = new Set();
         }
 
         apply(op) {
@@ -218,11 +219,12 @@
                 id: op.id,
                 previous: op.previous || null,
                 value: op.value,
-                removed: this.deletes.has(op.id),
+                removed: this.deleteTargets.has(op.id),
               });
             }
           } else if (op.type === "delete") {
-            this.deletes.add(op.target);
+            this.deletes.set(op.id, { id: op.id, target: op.target });
+            this.deleteTargets.add(op.target);
             const element = this.elements.get(op.target);
             if (element) element.removed = true;
           }
@@ -269,19 +271,36 @@
         }
 
         columns() {
-          const rows = ["op_id,ref_id,char,removed"];
+          const rows = ["type,op_id,ref_id,target_id,char,removed"];
           const elements = Array.from(this.elements.values()).sort((a, b) =>
             compareOpId(a.id, b.id)
           );
           for (const element of elements) {
-            const value =
-              element.value === "\n" ? "\\n" : element.value === "," ? "\\," : element.value;
+            const value = csvField(element.value);
             rows.push(
-              `${element.id},${element.previous || "ROOT"},${value},${element.removed}`
+              `insert,${csvField(element.id)},${csvField(
+                element.previous || "ROOT"
+              )},,${value},${element.removed}`
+            );
+          }
+          const deletes = Array.from(this.deletes.values()).sort((a, b) =>
+            compareOpId(a.id, b.id)
+          );
+          for (const deletion of deletes) {
+            rows.push(
+              `delete,${csvField(deletion.id)},,${csvField(
+                deletion.target
+              )},,true`
             );
           }
           return rows.join("\n");
         }
+      }
+
+      function csvField(value) {
+        const text = String(value ?? "");
+        if (!/[",\r\n]/.test(text)) return text;
+        return `"${text.replaceAll('"', '""')}"`;
       }
 
       function parseOpId(id) {
@@ -363,7 +382,7 @@
       function send(op) {
         applyAndRender(op);
         if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "op", op }));
+          ws.send(JSON.stringify({ type: "op", document_id: documentId, op }));
         } else {
           pendingOps.set(op.id, op);
         }
@@ -372,9 +391,20 @@
       function flushPendingOps() {
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
         for (const op of pendingOps.values()) {
-          ws.send(JSON.stringify({ type: "op", op }));
+          ws.send(JSON.stringify({ type: "op", document_id: documentId, op }));
         }
         pendingOps.clear();
+      }
+
+      function requestSync() {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(
+          JSON.stringify({
+            type: "sync-request",
+            document_id: documentId,
+            known_ids: Array.from(seenOps),
+          })
+        );
       }
 
       function render() {
@@ -515,7 +545,7 @@
           dot.classList.add("open");
           status.textContent = "connected";
           flushPendingOps();
-          ws.send(JSON.stringify({ type: "sync-request" }));
+          requestSync();
         };
 
         ws.onclose = () => {
@@ -536,8 +566,12 @@
             return;
           }
           if (message.type === "sync") {
+            if (message.document_id !== documentId) return;
             for (const op of message.ops) applyAndRender(op);
             if (message.clients) clientsEl.textContent = `clients: ${message.clients}`;
+          } else if (message.type === "op") {
+            if (message.document_id !== documentId) return;
+            applyAndRender(message.op);
           } else if (message.type === "error") {
             status.textContent = message.message;
           }
@@ -547,7 +581,7 @@
       setInterval(() => {
         if (ws && ws.readyState === WebSocket.OPEN) {
           flushPendingOps();
-          ws.send(JSON.stringify({ type: "sync-request" }));
+          requestSync();
         }
       }, 3000);
 
