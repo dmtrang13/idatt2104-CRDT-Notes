@@ -7,10 +7,41 @@ const HTTP_PORT = Number(process.env.HTTP_PORT || 3000);
 const WS_PORT = Number(process.env.WS_PORT || 3001);
 const HOST = process.env.HOST;
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const DEFAULT_DOCUMENT_ID = "default";
+const MAX_FRAME_PAYLOAD_BYTES = Number(process.env.MAX_FRAME_PAYLOAD_BYTES || 1024 * 1024);
+const MAX_MESSAGE_BYTES = Number(process.env.MAX_MESSAGE_BYTES || 256 * 1024);
+const MAX_OP_VALUE_CHARS = Number(process.env.MAX_OP_VALUE_CHARS || 1);
 
 const clients = new Set();
-const operations = new Map();
+const documents = new Map();
 let pgClient = null;
+
+function operationsFor(documentId) {
+  if (!documents.has(documentId)) {
+    documents.set(documentId, new Map());
+  }
+  return documents.get(documentId);
+}
+
+function isValidDocumentId(documentId) {
+  return (
+    typeof documentId === "string" &&
+    /^[A-Za-z0-9_-]{1,64}$/.test(documentId)
+  );
+}
+
+function parseDocumentIdFromPath(requestPath) {
+  try {
+    const url = new URL(requestPath, "http://localhost");
+    const documentId =
+      url.searchParams.get("document_id") ||
+      url.searchParams.get("doc") ||
+      DEFAULT_DOCUMENT_ID;
+    return isValidDocumentId(documentId) ? documentId : DEFAULT_DOCUMENT_ID;
+  } catch {
+    return DEFAULT_DOCUMENT_ID;
+  }
+}
 
 function loadPgClient() {
   try {
@@ -36,33 +67,56 @@ async function initializePersistence() {
   await pgClient.connect();
   await pgClient.query(`
     CREATE TABLE IF NOT EXISTS crdt_operations (
-      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      id TEXT NOT NULL,
       type TEXT NOT NULL CHECK (type IN ('insert', 'delete')),
       previous_id TEXT,
       target_id TEXT,
       value TEXT,
       payload JSONB NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (document_id, id)
     )
   `);
 
+  const schemaCheck = await pgClient.query(`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name = 'crdt_operations'
+        AND column_name = 'document_id'
+    ) AS has_document_id
+  `);
+  if (!schemaCheck.rows[0].has_document_id) {
+    throw new Error(
+      "Existing crdt_operations table is missing document_id. Migrate the table or reset the Docker volume with: docker compose down -v"
+    );
+  }
+
+  await pgClient.query(`
+    CREATE INDEX IF NOT EXISTS crdt_operations_created_at_idx
+      ON crdt_operations (document_id, created_at, id)
+  `);
+
   const result = await pgClient.query(
-    "SELECT payload FROM crdt_operations ORDER BY created_at ASC, id ASC"
+    "SELECT document_id, payload FROM crdt_operations"
   );
   for (const row of result.rows) {
-    operations.set(row.payload.id, row.payload);
+    operationsFor(row.document_id).set(row.payload.id, row.payload);
   }
-  console.log(`Persistence: loaded ${operations.size} operations from PostgreSQL`);
+  console.log(`Persistence: loaded ${result.rowCount} operations from PostgreSQL`);
 }
 
-async function persistOperation(op) {
+async function persistOperation(documentId, op) {
   if (!pgClient) return;
 
   await pgClient.query(
-    `INSERT INTO crdt_operations (id, type, previous_id, target_id, value, payload)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-     ON CONFLICT (id) DO NOTHING`,
+    `INSERT INTO crdt_operations
+       (document_id, id, type, previous_id, target_id, value, payload)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+     ON CONFLICT (document_id, id) DO NOTHING`,
     [
+      documentId,
       op.id,
       op.type,
       op.previous ?? null,
@@ -139,6 +193,10 @@ function parseFrames(buffer) {
       headerLen = 10;
     }
 
+    if (payloadLen > MAX_FRAME_PAYLOAD_BYTES) {
+      throw new Error("Frame payload too large.");
+    }
+
     if (!fin) {
       throw new Error("Fragmented frames are not supported.");
     }
@@ -177,16 +235,22 @@ function broadcast(message) {
   }
 }
 
-function syncMessage() {
+function syncMessage(documentId) {
   return {
     type: "sync",
-    ops: Array.from(operations.values()),
-    clients: clients.size,
+    document_id: documentId,
+    ops: Array.from(operationsFor(documentId).values()),
+    clients: Array.from(clients).filter((client) => client.documentId === documentId)
+      .length,
   };
 }
 
-function syncAll() {
-  broadcast(syncMessage());
+function syncDocument(documentId) {
+  for (const client of clients) {
+    if (client.documentId === documentId) {
+      send(client, syncMessage(documentId));
+    }
+  }
 }
 
 function isValidOpId(id) {
@@ -204,7 +268,7 @@ function isValidOperation(op) {
     return (
       hasValidPrevious &&
       typeof op.value === "string" &&
-      [...op.value].length === 1
+      [...op.value].length === MAX_OP_VALUE_CHARS
     );
   }
 
@@ -215,13 +279,30 @@ function isValidOperation(op) {
   return false;
 }
 
-async function rememberOperation(op) {
-  if (!isValidOperation(op) || operations.has(op.id)) {
-    return false;
+function sameOperation(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+async function rememberOperation(documentId, op) {
+  const operations = operationsFor(documentId);
+  if (!isValidOperation(op)) {
+    return { accepted: false, reason: "invalid operation" };
   }
+
+  const existing = operations.get(op.id);
+  if (existing) {
+    if (!sameOperation(existing, op)) {
+      console.warn(
+        `Conflicting duplicate operation ${op.id} in document ${documentId}`
+      );
+      return { accepted: false, reason: "conflicting duplicate operation" };
+    }
+    return { accepted: false, reason: "duplicate operation" };
+  }
+
   operations.set(op.id, op);
-  await persistOperation(op);
-  return true;
+  await persistOperation(documentId, op);
+  return { accepted: true };
 }
 
 const httpServer = net.createServer((connection) => {
@@ -265,6 +346,7 @@ const wsServer = net.createServer((connection) => {
     socket: connection,
     state: "HANDSHAKE",
     buffer: Buffer.alloc(0),
+    documentId: DEFAULT_DOCUMENT_ID,
   };
   clients.add(client);
 
@@ -284,6 +366,8 @@ const wsServer = net.createServer((connection) => {
           connection.end("HTTP/1.1 400 Bad Request\r\n\r\n");
           return;
         }
+        const [, requestPath] = requestLine.split(" ");
+        client.documentId = parseDocumentIdFromPath(requestPath);
 
         const headers = {};
         for (const line of lines) {
@@ -323,7 +407,7 @@ const wsServer = net.createServer((connection) => {
         );
         client.buffer = client.buffer.subarray(headerBytes);
         client.state = "OPEN";
-        syncAll();
+        syncDocument(client.documentId);
       }
 
       if (client.state === "OPEN") {
@@ -332,6 +416,11 @@ const wsServer = net.createServer((connection) => {
 
         for (const frame of frames) {
           if (frame.opcode === 0x1) {
+            if (frame.payload.length > MAX_MESSAGE_BYTES) {
+              send(client, { type: "error", message: "Message too large" });
+              continue;
+            }
+
             let message;
             try {
               message = JSON.parse(frame.payload.toString("utf8"));
@@ -340,12 +429,15 @@ const wsServer = net.createServer((connection) => {
               continue;
             }
 
-            if (message.type === "op" && (await rememberOperation(message.op))) {
-              syncAll();
+            if (message.type === "op") {
+              const result = await rememberOperation(client.documentId, message.op);
+              if (result.accepted) {
+                syncDocument(client.documentId);
+              } else {
+                send(client, { type: "error", message: result.reason });
+              }
             } else if (message.type === "sync-request") {
-              send(client, syncMessage());
-            } else if (message.type === "op") {
-              send(client, syncMessage());
+              send(client, syncMessage(client.documentId));
             }
           } else if (frame.opcode === 0x8) {
             connection.write(makeControlFrame(0x8));
@@ -367,7 +459,7 @@ const wsServer = net.createServer((connection) => {
   function removeClient() {
     const removed = clients.delete(client);
     if (removed) {
-      syncAll();
+      syncDocument(client.documentId);
     }
   }
 

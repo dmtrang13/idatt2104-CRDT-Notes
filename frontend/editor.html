@@ -304,10 +304,16 @@
         crypto.randomUUID().slice(0, 8);
       sessionStorage.setItem("crdt-replica-id", replicaId);
 
+      const urlParams = new URLSearchParams(location.search);
+      const documentId = urlParams.get("document_id") || urlParams.get("doc") || "default";
+      const wsPort = urlParams.get("ws_port") || "3001";
       let counter = 0;
       let localText = "";
       let applyingRemote = false;
       let batchingLocalOps = false;
+      let reconnectDelayMs = 500;
+      let reconnectTimer = null;
+      let ws = null;
       const seenOps = new Set();
       const pendingOps = new Map();
       const rga = new RgaText();
@@ -318,7 +324,19 @@
       const replica = document.getElementById("replica");
       const counterEl = document.getElementById("counter");
       const clientsEl = document.getElementById("clients");
-      const ws = new WebSocket("ws://localhost:3001");
+
+      function websocketUrl() {
+        const url = new URL("/", location.href);
+        url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        url.hostname = location.hostname;
+        if (wsPort === "same") {
+          url.port = location.port;
+        } else {
+          url.port = wsPort;
+        }
+        url.searchParams.set("document_id", documentId);
+        return url.toString();
+      }
 
       function nextId() {
         counter += 1;
@@ -342,7 +360,7 @@
 
       function send(op) {
         applyAndRender(op);
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "op", op }));
         } else {
           pendingOps.set(op.id, op);
@@ -350,7 +368,7 @@
       }
 
       function flushPendingOps() {
-        if (ws.readyState !== WebSocket.OPEN) return;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
         for (const op of pendingOps.values()) {
           ws.send(JSON.stringify({ type: "op", op }));
         }
@@ -368,7 +386,7 @@
         }
         localText = text;
         ops.textContent = rga.columns();
-        replica.textContent = `replica: ${replicaId}`;
+        replica.textContent = `document: ${documentId} | replica: ${replicaId}`;
         counterEl.textContent = `lamport: ${counter}`;
       }
 
@@ -467,38 +485,71 @@
         }
       };
 
-      ws.onopen = () => {
-        dot.classList.add("open");
-        status.textContent = "connected";
-        flushPendingOps();
-        ws.send(JSON.stringify({ type: "sync-request" }));
-      };
+      function scheduleReconnect() {
+        if (reconnectTimer) return;
+        const delay = reconnectDelayMs;
+        reconnectDelayMs = Math.min(reconnectDelayMs * 2, 8000);
+        status.textContent = `reconnecting in ${Math.round(delay / 1000)}s`;
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          connectWebSocket();
+        }, delay);
+      }
 
-      ws.onclose = () => {
-        dot.classList.remove("open");
-        status.textContent = "closed";
-      };
-
-      ws.onerror = () => {
-        dot.classList.remove("open");
-        status.textContent = "error";
-      };
-
-      ws.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        if (message.type === "sync") {
-          for (const op of message.ops) applyAndRender(op);
-          if (message.clients) clientsEl.textContent = `clients: ${message.clients}`;
+      function connectWebSocket() {
+        if (
+          ws &&
+          (ws.readyState === WebSocket.OPEN ||
+            ws.readyState === WebSocket.CONNECTING)
+        ) {
+          return;
         }
-      };
+
+        status.textContent = "connecting";
+        ws = new WebSocket(websocketUrl());
+
+        ws.onopen = () => {
+          reconnectDelayMs = 500;
+          dot.classList.add("open");
+          status.textContent = "connected";
+          flushPendingOps();
+          ws.send(JSON.stringify({ type: "sync-request" }));
+        };
+
+        ws.onclose = () => {
+          dot.classList.remove("open");
+          scheduleReconnect();
+        };
+
+        ws.onerror = () => {
+          dot.classList.remove("open");
+          status.textContent = "error";
+        };
+
+        ws.onmessage = (event) => {
+          let message;
+          try {
+            message = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+          if (message.type === "sync") {
+            for (const op of message.ops) applyAndRender(op);
+            if (message.clients) clientsEl.textContent = `clients: ${message.clients}`;
+          } else if (message.type === "error") {
+            status.textContent = message.message;
+          }
+        };
+      }
 
       setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
           flushPendingOps();
           ws.send(JSON.stringify({ type: "sync-request" }));
         }
       }, 3000);
 
+      connectWebSocket();
       render();
     </script>
   </body>
