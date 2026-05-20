@@ -43,6 +43,8 @@
 build/
 Build/
 build-*/
+node_modules/
+frontend/node_modules/
 *.exe
 *.obj
 *.pdb
