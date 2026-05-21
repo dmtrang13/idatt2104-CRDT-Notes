@@ -35,6 +35,9 @@ struct LamportClock {
 
 template <typename T> class LwwRegister {
 public:
+  // Concurrent assignments with equal counters are resolved by OpId ordering:
+  // the lexicographically larger replica id wins. This is deterministic, but
+  // intentionally visible to callers that use LWW fields for user data.
   void assign(T value, OpId time) {
     if (!state || state->time < time) {
       state = Entry{std::move(value), std::move(time)};
@@ -55,6 +58,13 @@ public:
   }
 
   bool has_value() const { return state.has_value(); }
+
+  std::optional<OpId> max_observed() const {
+    if (!state) {
+      return std::nullopt;
+    }
+    return state->time;
+  }
 
 private:
   struct Entry {
@@ -118,6 +128,27 @@ public:
     return result;
   }
 
+  std::optional<OpId> max_observed() const {
+    std::optional<OpId> result;
+    const auto observe = [&result](const OpId &id) {
+      if (!result || *result < id) {
+        result = id;
+      }
+    };
+
+    for (const auto &[_, dots] : additions) {
+      for (const auto &dot : dots) {
+        observe(dot);
+      }
+    }
+    for (const auto &[_, dots] : removals) {
+      for (const auto &dot : dots) {
+        observe(dot);
+      }
+    }
+    return result;
+  }
+
 private:
   std::map<T, std::set<OpId>> additions;
   std::map<T, std::set<OpId>> removals;
@@ -128,33 +159,31 @@ public:
   struct Element {
     OpId id;
     std::optional<OpId> previous;
-    char value{};
+    std::string value;
     bool removed{};
   };
 
-  OpId insert_after(std::optional<OpId> previous, char value, OpId id);
-  std::optional<OpId> insert_at(std::size_t index, char value, OpId id);
+  struct DeleteOperation {
+    OpId id;
+    OpId target;
+  };
+
+  OpId insert_after(std::optional<OpId> previous, std::string value, OpId id);
+  std::optional<OpId> insert_at(std::size_t index, std::string value, OpId id);
   std::vector<OpId> erase_range(std::size_t index, std::size_t count);
   void erase(const OpId &id);
+  OpId erase_with(OpId delete_id, OpId target);
   void merge(const RgaText &other);
   std::string str() const;
   std::string columnar_encoding() const;
+  std::optional<OpId> max_observed() const;
 
 private:
   std::vector<const Element *> visible_order() const;
   std::optional<OpId> predecessor_for_insert(std::size_t index) const;
 
-  static void append_visible_elements(
-      const std::optional<OpId> &previous,
-      const std::map<std::optional<OpId>, std::vector<const Element *>> &children,
-      std::vector<const Element *> &result);
-
-  static void append_visible(
-      const std::optional<OpId> &previous,
-      const std::map<std::optional<OpId>, std::vector<const Element *>> &children,
-      std::string &result);
-
   std::map<OpId, Element> elements;
+  std::map<OpId, DeleteOperation> deletes;
   std::set<OpId> pending_deletes;
 };
 

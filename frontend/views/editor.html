@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CRDT Notes</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="topbar">
+          <h1>CRDT Notes</h1>
+          <div class="status">
+            <span class="dot" id="dot"></span>
+            <span id="status">connecting</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <label for="editor" class="sr-only">Note editor</label>
+        <textarea id="editor" spellcheck="false" autofocus></textarea>
+        <aside>
+          <div class="actions">
+            <button id="clear">Clear</button>
+          </div>
+          <h2 class="panel-title">RGA operation columns</h2>
+          <pre id="ops"></pre>
+        </aside>
+      </section>
+
+      <footer>
+        <span id="replica"></span>
+        <span id="counter"></span>
+        <span id="clients"></span>
+      </footer>
+    </main>
+
+    <script src="/crdt_wasm.js"></script>
+    <script src="/websocket.js"></script>
+    <script type="module" src="/editor.js"></script>
+  </body>
+</html>

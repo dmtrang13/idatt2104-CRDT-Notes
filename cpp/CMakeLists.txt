@@ -16,7 +16,7 @@ target_compile_features(crdt_core PUBLIC cxx_std_20)
 target_include_directories(crdt_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(crdt_notes
-    crdt_demo.cpp
+    crdt_tests.cpp
 )
 
 target_link_libraries(crdt_notes PRIVATE crdt_core)

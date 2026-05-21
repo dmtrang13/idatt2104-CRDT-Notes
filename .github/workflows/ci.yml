@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend C++
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++
+
+      - name: Configure
+        working-directory: cpp
+        run: cmake --preset linux-debug
+
+      - name: Build
+        working-directory: cpp
+        run: cmake --build --preset linux-debug
+
+      - name: Test
+        working-directory: cpp
+        run: ctest --test-dir build-linux --output-on-failure
+
+  frontend:
+    name: Frontend Node
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm install
+
+      - name: Check server syntax
+        working-directory: backend
+        run: npm run check
+
+  docker:
+    name: Docker Compose
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate compose file
+        run: docker compose config
+
+      - name: Build app image
+        run: docker compose build app

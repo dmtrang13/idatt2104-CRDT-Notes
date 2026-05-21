@@ -1,220 +1,264 @@
 # CRDT Notes
-CRDT Notes er en liten nettleserbasert teksteditor for konfliktfri replikering mellom flere noder. Løsningen består av en C++20 proof of concept for CRDT-kjernen og en enkel HTML/JavaScript-editor med HTTP/WebSocket-server. Nettleserklientene kan gjøre lokale endringer uavhengig av hverandre og konvergerer automatisk via serverens operasjonslogg.
 
-## GitHub-repository
+CRDT Notes is a small browser-based collaborative text editor that demonstrates conflict-free replication between clients. The project is split into a C++ CRDT core, a Node.js HTTP/WebSocket/PostgreSQL backend, and a browser frontend.
+
+## Repository
 
 [dmtrang13/idatt2104-CRDT-Notes](https://github.com/dmtrang13/idatt2104-CRDT-Notes.git)
 
-## Introduksjon
+## Layout
 
-## Introduksjon
+```text
+frontend/
+  editor.html      # browser shell
+  editor.js        # UI and local editor state
+  websocket.js     # WebSocket connection, reconnect, sync messages
+  styles.css       # editor styling
 
-Prosjektet demonstrerer hvordan enkle Conflict-free Replicated Data Types (CRDT-er) kan brukes til å synkronisere tekst mellom flere klienter uten sentral konfliktløsning. Løsningen består av en liten C++20-implementasjon av CRDT-strukturer og en nettleserbasert editor skrevet i HTML og JavaScript med synkronisering over WebSocket.
+backend/
+  server.js        # HTTP, WebSocket, validation, auth, PostgreSQL
+  crdt_bridge.cpp  # placeholder for future C++/WASM/native bridge
 
-Målet er først og fremst pedagogisk: å vise hvordan Lamport-klokker, add-wins-sett og RGA-sekvenser kan brukes til å oppnå deterministisk konvergens mellom replikater.
-
-## Innhold
-
- [Implementert funksjonalitet](#implementert-funksjonalitet)
-- [Avhengigheter](#avhengigheter)
-- [Installasjon](#installasjon)
-- [Bruk](#bruk)
-- [Testing](#testing)
-- [Viktige komponenter](#viktige-komponenter)
-- [Ekstern informasjon og kode](#ekstern-informasjon-og-kode)
-- [Fremtidig arbeid](#fremtidig-arbeid)
-
-## Implementert funksjonalitet
-
-- Lamport-klokke og stabile operasjons-ID-er på formen `counter@replica`.
-- Deterministisk merge for LWW-register, AWSet og RGA-tekst.
-- Nettleserbasert teksteditor i `editor.html`.
-- Enkel HTTP-server og WebSocket-server i `server.js`, inspirert av `oeving6.js` i IDATT2104.
-- Automatisk WebSocket-synkronisering av RGA-operasjoner mellom flere faner.
-- Server-side operasjonslogg som holder klientene synket på `localhost`.
-- LCS-basert tekst-diff i webeditoren, slik at cut/paste og flytting av tekst bevarer forventet rekkefølge.
-- Kolonnevis visning av RGA-operasjoner i webgrensesnittet: `op_id`, `ref_id`, `char` og `removed`.
-- Innebygde C++-tester for konvergens.
-
-## Avhengigheter
-
--- En C++20-kompatibel kompilator:
-  - Windows: MSYS2 UCRT64 med GCC.
-  - Linux: GCC 10+ eller Clang 12+.
-  - macOS: Apple Clang 13+ eller nyere Clang installert via Homebrew.
-- CMake 3.20 eller nyere.
-- Ninja, brukt av CMake-presetene.
-- Node.js 18 eller nyere.
-- En moderne nettleser med WebSocket-støtte.
-
-Serveren bruker bare innebygde Node-moduler: `fs`, `path`, `net` og `crypto`.
-
-## Installasjon
-
-Klon eller åpne prosjektmappen og gå til repoet:
-
-```powershell
-cd ../idatt2104-CRDT-Notes
+cpp/
+  crdt.hpp         # CRDT API
+  crdt.cpp         # CRDT implementation
+  crdt_wasm.cpp    # Emscripten wrapper for browser use
+  crdt_tests.cpp   # built-in tests
 ```
 
-### Windows med MSYS2 UCRT64
+## Implemented Functionality
 
-Anbefalt oppsett på denne maskinen er MSYS2 UCRT64-preseten:
+- Lamport clocks and stable operation IDs on the form `counter@replica`.
+- Deterministic merge logic for LWW registers, add-wins sets, and RGA text.
+- First-class insert and delete operations for RGA text.
+- Browser editor with local pending-operation storage, reconnect, and missing-op sync.
+- Node backend using `ws` for WebSockets and `pg` for optional PostgreSQL persistence.
+- Optional Emscripten/WASM wrapper for using the C++ RGA from the browser.
+- Document separation with `document_id`.
+- Optional auth token, per-document tokens, and WebSocket origin allowlist.
+- PostgreSQL operation table keyed by `(document_id, id)`.
+- Dependency indexes and a snapshot table prepared for later compaction work.
+- Docker Compose setup for the backend and PostgreSQL.
+- GitHub Actions workflow for C++, Node syntax checking, and Docker Compose validation.
+
+This is still a proof-of-concept, not a production editor. The frontend diff is still O(n^2), snapshots are not yet used, and full production-grade auth/authorization is outside the current scope.
+
+## Dependencies
+
+- C++20 compiler.
+- CMake 3.20 or newer.
+- Ninja.
+- Node.js 18 or newer.
+- PostgreSQL, if operation persistence is enabled.
+- Docker and Docker Compose, if running the containerized setup.
+- A modern browser with WebSocket support.
+
+## Build And Test C++
+
+Run CMake from the `cpp` directory.
+
+### Windows With MSYS2 UCRT64
 
 ```powershell
+cd cpp
 cmake --preset msys-ucrt
 cmake --build --preset msys-ucrt
 ctest --test-dir build-ucrt --output-on-failure
 ```
 
-Preseten bygger i `build-ucrt` og setter `C:\msys64\ucrt64\bin` først i `PATH`. Det unngår DLL-konflikter hvis andre verktøykjeder, for eksempel STM32CubeCLT, ligger tidligere i `PATH`.
-
 ### Linux
 
-Installer typiske avhengigheter på Debian/Ubuntu:
-
 ```sh
-sudo apt update
-sudo apt install build-essential cmake ninja-build nodejs npm
-```
-
-Bygg og test med Linux-preseten:
-
-```sh
+cd cpp
 cmake --preset linux-debug
 cmake --build --preset linux-debug
 ctest --test-dir build-linux --output-on-failure
 ```
 
-Hvis distribusjonen din har en gammel Node.js-versjon i pakkebrønnen, installer Node.js 18+ via NodeSource, `nvm`, eller distribusjonens nyere pakkekilde.
-
 ### macOS
 
-Installer avhengigheter med Homebrew:
-
 ```sh
-brew install cmake ninja node
-```
-
-Bygg og test med macOS-preseten:
-
-```sh
+cd cpp
 cmake --preset macos-debug
 cmake --build --preset macos-debug
 ctest --test-dir build-macos --output-on-failure
 ```
 
-Apple Clang følger normalt med Xcode Command Line Tools. Installer dem hvis `clang++` mangler:
+### Direct Compile
 
 ```sh
-xcode-select --install
+cd cpp
+g++ -std=c++20 -Wall -Wextra -Wpedantic crdt.cpp crdt_tests.cpp -o crdt_notes
 ```
 
-### Direkte kompilering
+## Run Locally
 
-Direkte kompilering uten CMake fungerer også:
-
-```powershell
-g++ -std=c++20 -Wall -Wextra -Wpedantic crdt.cpp -o crdt_notes
-```
-
-På macOS kan kommandoen være:
+Install backend dependencies and start the server:
 
 ```sh
-clang++ -std=c++20 -Wall -Wextra -Wpedantic crdt.cpp -o crdt_notes
-```
-
-`msys-ucrt` er verifisert på denne Windows-maskinen. `linux-debug` og `macos-debug` er lagt inn som portable CMake/Ninja-presets for tilsvarende miljøer.
-
-## Bruk
-
-Start webeditoren:
-
-```sh
+cd backend
+npm install
 node server.js
 ```
 
-Åpne deretter to eller flere faner på:
+Open:
 
 ```text
 http://localhost:3000
 ```
 
-Skriv i en fane og se at de andre fanene mottar CRDT-operasjonene over WebSocket. Sidepanelet viser RGA-operasjonene i kolonneformat.
+Open two tabs with the same `document_id` to see operations converge:
 
-Den kompilerte C++-delen er ikke en egen editor. Den kan kjøres for å vise kort bruksinfo:
-
-Windows/MSYS2:
-
-```powershell
-./build-ucrt/crdt_notes.exe
+```text
+http://localhost:3000/?document_id=notes-1
 ```
 
-Linux:
+If the WebSocket server is not on port `3001`, pass `ws_port`:
 
-```sh
-./build-linux/crdt_notes
+```text
+http://localhost:3000/?document_id=notes-1&ws_port=3001
 ```
 
-macOS:
+`ws_port=same` is useful only when HTTP and WebSocket traffic are served through the same host and port, such as behind a reverse proxy.
+
+## Build The WASM Wrapper
+
+The browser can optionally use the C++ RGA implementation through Emscripten. Install and activate Emscripten first, then run:
 
 ```sh
-./build-macos/crdt_notes
+cd backend
+npm run build:wasm
+```
+
+This generates ignored build artifacts:
+
+```text
+frontend/crdt_wasm.js
+frontend/crdt_wasm.wasm
+```
+
+The editor loads `/crdt_wasm.js` before `editor.js`. If the WASM files are missing, the browser falls back to the JavaScript RGA implementation. If they exist, `editor.js` applies operations to the WASM `WasmDocument` for text rendering and columnar encoding while still using JavaScript for UI, diffing, WebSocket sync, and visible-ID lookup.
+
+## PostgreSQL
+
+Without `DATABASE_URL`, the backend keeps operations in memory. To persist operations:
+
+```sh
+cd backend
+psql "$DATABASE_URL" -f ../database/schema.sql
+DATABASE_URL="postgres://user:password@localhost:5432/crdt_notes" node server.js
+```
+
+The database stores operations with `document_id`, operation type, references, payload, and insertion time. `created_at` is database arrival time, not CRDT causal time; the CRDT logic must still treat operations as an unordered set.
+
+## Auth And Limits
+
+The backend can run open for local demos. For protected mode, set either `AUTH_TOKEN` or `DOCUMENT_TOKENS`.
+
+```sh
+AUTH_TOKEN="shared-secret" node server.js
+```
+
+Requests should send the token with `Authorization: Bearer ...` or a `crdt_token` cookie. URL tokens are disabled by default because they can leak through browser history, logs, screenshots, and referrers. They can be enabled for local demos with:
+
+```sh
+ALLOW_URL_TOKENS=true
+```
+
+Per-document tokens:
+
+```sh
+DOCUMENT_TOKENS='{"notes-1":"secret-a","notes-2":"secret-b"}' node server.js
+```
+
+Allowed WebSocket origins:
+
+```sh
+ALLOWED_ORIGINS="http://localhost:3000,http://127.0.0.1:3000" node server.js
+```
+
+Useful environment variables are documented in `.env.example`.
+
+## Docker
+
+Copy the example environment file and adjust it locally:
+
+```sh
+cp .env.example .env
+```
+
+Start the backend and PostgreSQL:
+
+```sh
+docker compose up --build
+```
+
+Services:
+
+- PostgreSQL on `localhost:5432`.
+- HTTP editor on `http://localhost:3000`.
+- WebSocket server on `ws://localhost:3001`.
+
+Reset the database volume:
+
+```sh
+docker compose down -v
+docker compose up --build
 ```
 
 ## Testing
 
-Sjekk JavaScript-serveren for syntaksfeil:
+JavaScript syntax check:
 
 ```sh
-node --check server.js
+cd backend
+npm run check
 ```
 
-Kjør C++-testene for riktig buildmappe:
+C++ tests:
 
-```powershell
+```sh
+cd cpp
 ctest --test-dir build-ucrt --output-on-failure
 ```
 
+Use `build-linux` or `build-macos` for the matching preset on those platforms.
+
+Docker Compose validation:
+
 ```sh
-ctest --test-dir build-linux --output-on-failure
-ctest --test-dir build-macos --output-on-failure
+docker compose config
 ```
 
-Testene bruker `assert` fra standardbiblioteket og feiler dersom CRDT-ene ikke konvergerer.
+## Important Components
 
-## Viktige komponenter
+The C++ core in `cpp/crdt.hpp` and `cpp/crdt.cpp` contains:
 
-C++-kjernen ligger i `crdt.cpp` og består hovedsakelig av:
+- `LamportClock`, which creates monotone operation IDs.
+- `LwwRegister<T>`, where the newest operation wins.
+- `AwSet<T>`, an add-wins observed-remove set.
+- `RgaText`, a replicated growable array for text with inserts, deletes, and tombstones.
+- `Replica`, which combines the CRDT structures into one document replica.
 
-- `LamportClock`  
-  Genererer monotone operasjons-ID-er på formen `counter@replica`.
+The frontend has its own JavaScript RGA model for the browser demo. `frontend/editor.js` owns UI state and rendering, while `frontend/websocket.js` owns connection, reconnect, send, and sync behavior.
 
-- `LwwRegister<T>`  
-  Last-writer-wins-register der den nyeste operasjonen overskriver eldre verdier.
+The backend in `backend/server.js` serves frontend files, validates WebSocket messages, persists operations, performs missing-op sync, and uses PostgreSQL `LISTEN/NOTIFY` so multiple server processes can observe new operations.
 
-- `AwSet<T>`  
-  Add-wins observed-remove set der samtidige inserts vinner over deletes.
+`cpp/crdt_wasm.cpp` exposes `WasmDocument` with `insertAfter`, `erase`, `eraseWith`, `text`, and `columns` for Emscripten builds.
 
-- `RgaText`  
-  Replicated Growable Array for sekvensiell tekstredigering med inserts, deletes og tombstones.
+`backend/crdt_bridge.cpp` is a placeholder boundary for later connecting the Node backend to the C++ CRDT core through a native addon, child process, or WebAssembly.
 
-- `Replica`  
-  Kombinerer klokke og CRDT-strukturer til én dokumentreplika.
+## External Code
 
-Webeditoren implementerer en tilsvarende `RgaText` i `editor.html`, mens synkronisering og WebSocket-handshake håndteres i `server.js`.
+The implementation uses standard CRDT ideas: Lamport timestamps, last-writer-wins registers, observed-remove/add-wins sets, and RGA sequences. The WebSocket server uses the `ws` package rather than a hand-written frame parser.
 
-## Ekstern informasjon og kode
+No external CRDT library is used.
 
-Implementasjonen bygger på allment kjente CRDT-prinsipper: Lamport timestamps, last-writer-wins register, observed-remove/add-wins set og RGA-sekvenser. WebSocket-handshake og frame-parsing er skrevet med Node sine standardmoduler etter samme prinsipp som øving 6 i dette prosjektet.
+## Future Work
 
-Det brukes ingen eksterne CRDT-biblioteker eller tredjeparts kode i implementasjonen.
-
-## Fremtidig arbeid
-
-- Dele C++-CRDT-kjernen med webserveren, for eksempel via et API eller WebAssembly.
-- Persistens av operasjonsloggen til fil eller database. Nå forsvinner webtilstanden når serveren stoppes.
-- Bedre Unicode-håndtering. C++-delen bruker fortsatt `char`.
-- Komprimering eller garbage collection av tombstones i AWSet og RGA.
-- Mer testdekning, inkludert tilfeldige operasjonsrekkefølger og flere replikater.
-- Separere bibliotek, demo og tester i egne filer dersom løsningen vokser.
+- Connect the backend directly to the C++ CRDT core through `backend/crdt_bridge.cpp`.
+- Replace the O(n^2) frontend LCS diff with incremental edit handling.
+- Finish moving frontend RGA storage and visible-order lookup into WASM.
+- Write and use snapshots to avoid full replay forever.
+- Add tombstone garbage collection once replicas have acknowledged operations.
+- Add richer tests for restart replay, duplicate DB conflicts, two documents, reconnect, invalid operations, and multi-server notification behavior.
