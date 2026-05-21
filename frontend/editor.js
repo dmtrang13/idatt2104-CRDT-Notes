@@ -142,9 +142,8 @@ function compareOpId(left, right) {
   return a.replica.localeCompare(b.replica);
 }
 
-const replicaId =
-  sessionStorage.getItem("crdt-replica-id") || crypto.randomUUID().slice(0, 8);
-sessionStorage.setItem("crdt-replica-id", replicaId);
+const tabId = crypto.randomUUID().slice(0, 8);
+const replicaId = `${tabId}-${crypto.randomUUID().slice(0, 8)}`;
 
 const urlParams = new URLSearchParams(location.search);
 const documentId = urlParams.get("document_id") || urlParams.get("doc") || "default";
@@ -165,6 +164,29 @@ const status = document.getElementById("status");
 const replica = document.getElementById("replica");
 const counterEl = document.getElementById("counter");
 const clientsEl = document.getElementById("clients");
+
+function sessionUrl() {
+  const url = new URL("/session", location.href);
+  url.searchParams.set("document_id", documentId);
+  return url.toString();
+}
+
+async function createSession(token) {
+  const response = await fetch(sessionUrl(), {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+
+  if (!response.ok) return false;
+  const body = await response.json().catch(() => ({}));
+  return body.authenticated === true;
+}
+
+async function ensureSession() {
+  return createSession("");
+}
 
 function pendingStorageKey() {
   return `crdt-pending-ops:${documentId}:${replicaId}`;
@@ -222,8 +244,15 @@ const socket = window.createCrdtSocket({
     status.textContent = "connected";
     flushPendingOps();
   },
-  onClose() {
+  onClose({ opened }) {
     dot.classList.remove("open");
+    if (!opened) {
+      status.textContent = "connection rejected";
+      const loginUrl = new URL("/login.html", location.href);
+      loginUrl.searchParams.set("document_id", documentId);
+      clientsEl.innerHTML = `<a href="${loginUrl}">log in</a>`;
+      return false;
+    }
   },
   onStatus(message) {
     status.textContent = message;
@@ -370,5 +399,17 @@ setInterval(() => {
 }, 3000);
 
 loadPendingOps();
-socket.connect();
 render();
+try {
+  if (await ensureSession()) {
+    socket.connect();
+  } else {
+    status.textContent = "not authenticated";
+    const loginUrl = new URL("/login.html", location.href);
+    loginUrl.searchParams.set("document_id", documentId);
+    clientsEl.innerHTML = `<a href="${loginUrl}">log in</a>`;
+  }
+} catch (error) {
+  console.error("Authentication failed:", error);
+  status.textContent = "authentication failed";
+}

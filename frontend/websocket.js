@@ -62,15 +62,17 @@
 
       onStatus("connecting");
       ws = new WebSocket(websocketUrl());
+      let opened = false;
 
       ws.onopen = () => {
+        opened = true;
         reconnectDelayMs = 500;
         onOpen();
         requestSync();
       };
 
       ws.onclose = () => {
-        onClose();
+        if (onClose({ opened }) === false) return;
         scheduleReconnect();
       };
 
