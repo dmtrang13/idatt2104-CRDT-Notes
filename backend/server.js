@@ -431,6 +431,8 @@ function createHttpServer() {
     ["/styles.css", { file: "styles.css", type: "text/css; charset=utf-8" }],
     ["/editor.js", { file: "editor.js", type: "text/javascript; charset=utf-8" }],
     ["/websocket.js", { file: "websocket.js", type: "text/javascript; charset=utf-8" }],
+    ["/crdt_wasm.js", { file: "crdt_wasm.js", type: "text/javascript; charset=utf-8" }],
+    ["/crdt_wasm.wasm", { file: "crdt_wasm.wasm", type: "application/wasm" }],
   ]);
 
   return http.createServer((req, res) => {
@@ -468,10 +470,11 @@ function createHttpServer() {
         "Content-Type": asset.type,
         "Cache-Control": "no-store",
         "Content-Security-Policy":
-          "default-src 'self'; connect-src 'self' ws: wss:; style-src 'self'; script-src 'self'",
+          "default-src 'self'; connect-src 'self' ws: wss:; style-src 'self'; script-src 'self' 'wasm-unsafe-eval'",
       });
-    } catch {
-      sendHttp(res, 500, "Server error");
+    } catch (error) {
+      const missing = error.code === "ENOENT";
+      sendHttp(res, missing ? 404 : 500, missing ? "Not found" : "Server error");
     }
   });
 }

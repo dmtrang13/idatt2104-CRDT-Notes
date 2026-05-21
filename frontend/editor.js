@@ -81,6 +81,46 @@ class RgaText {
   }
 }
 
+class WasmRgaText extends RgaText {
+  constructor(document) {
+    super();
+    this.document = document;
+  }
+
+  apply(op) {
+    super.apply(op);
+    if (op.type === "insert") {
+      this.document.insertAfter(op.previous || "", op.value, op.id);
+    } else if (op.type === "delete") {
+      this.document.eraseWith(op.id, op.target);
+    }
+  }
+
+  text() {
+    return this.document.text();
+  }
+
+  columns() {
+    return this.document.columns();
+  }
+}
+
+async function createRgaText() {
+  if (typeof window.createCrdtModule !== "function") {
+    return new RgaText();
+  }
+
+  try {
+    const CrdtModule = await window.createCrdtModule({
+      locateFile: (file) => `/${file}`,
+    });
+    return new WasmRgaText(new CrdtModule.WasmDocument());
+  } catch (error) {
+    console.warn("Falling back to JavaScript CRDT:", error);
+    return new RgaText();
+  }
+}
+
 function csvField(value) {
   const text = String(value ?? "");
   if (!/[",\r\n]/.test(text)) return text;
@@ -116,7 +156,7 @@ let applyingRemote = false;
 let batchingLocalOps = false;
 const seenOps = new Set();
 const pendingOps = new Map();
-const rga = new RgaText();
+const rga = await createRgaText();
 
 const editor = document.getElementById("editor");
 const ops = document.getElementById("ops");

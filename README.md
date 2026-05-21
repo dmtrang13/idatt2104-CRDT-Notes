@@ -22,6 +22,7 @@ backend/
 cpp/
   crdt.hpp         # CRDT API
   crdt.cpp         # CRDT implementation
+  crdt_wasm.cpp    # Emscripten wrapper for browser use
   crdt_tests.cpp   # built-in tests
 ```
 
@@ -32,6 +33,7 @@ cpp/
 - First-class insert and delete operations for RGA text.
 - Browser editor with local pending-operation storage, reconnect, and missing-op sync.
 - Node backend using `ws` for WebSockets and `pg` for optional PostgreSQL persistence.
+- Optional Emscripten/WASM wrapper for using the C++ RGA from the browser.
 - Document separation with `document_id`.
 - Optional auth token, per-document tokens, and WebSocket origin allowlist.
 - PostgreSQL operation table keyed by `(document_id, id)`.
@@ -39,7 +41,7 @@ cpp/
 - Docker Compose setup for the backend and PostgreSQL.
 - GitHub Actions workflow for C++, Node syntax checking, and Docker Compose validation.
 
-This is still a proof-of-concept, not a production editor. The frontend diff is still O(n^2), C++ text storage is byte-oriented with `char`, snapshots are not yet used, and full production-grade auth/authorization is outside the current scope.
+This is still a proof-of-concept, not a production editor. The frontend diff is still O(n^2), snapshots are not yet used, and full production-grade auth/authorization is outside the current scope.
 
 ## Dependencies
 
@@ -118,6 +120,24 @@ http://localhost:3000/?document_id=notes-1&ws_port=3001
 ```
 
 `ws_port=same` is useful only when HTTP and WebSocket traffic are served through the same host and port, such as behind a reverse proxy.
+
+## Build The WASM Wrapper
+
+The browser can optionally use the C++ RGA implementation through Emscripten. Install and activate Emscripten first, then run:
+
+```sh
+cd backend
+npm run build:wasm
+```
+
+This generates ignored build artifacts:
+
+```text
+frontend/crdt_wasm.js
+frontend/crdt_wasm.wasm
+```
+
+The editor loads `/crdt_wasm.js` before `editor.js`. If the WASM files are missing, the browser falls back to the JavaScript RGA implementation. If they exist, `editor.js` applies operations to the WASM `WasmDocument` for text rendering and columnar encoding while still using JavaScript for UI, diffing, WebSocket sync, and visible-ID lookup.
 
 ## PostgreSQL
 
@@ -224,6 +244,8 @@ The frontend has its own JavaScript RGA model for the browser demo. `frontend/ed
 
 The backend in `backend/server.js` serves frontend files, validates WebSocket messages, persists operations, performs missing-op sync, and uses PostgreSQL `LISTEN/NOTIFY` so multiple server processes can observe new operations.
 
+`cpp/crdt_wasm.cpp` exposes `WasmDocument` with `insertAfter`, `erase`, `eraseWith`, `text`, and `columns` for Emscripten builds.
+
 `backend/crdt_bridge.cpp` is a placeholder boundary for later connecting the Node backend to the C++ CRDT core through a native addon, child process, or WebAssembly.
 
 ## External Code
@@ -236,7 +258,7 @@ No external CRDT library is used.
 
 - Connect the backend directly to the C++ CRDT core through `backend/crdt_bridge.cpp`.
 - Replace the O(n^2) frontend LCS diff with incremental edit handling.
-- Decide and implement a consistent Unicode policy across C++ and JavaScript.
+- Finish moving frontend RGA storage and visible-order lookup into WASM.
 - Write and use snapshots to avoid full replay forever.
 - Add tombstone garbage collection once replicas have acknowledged operations.
 - Add richer tests for restart replay, duplicate DB conflicts, two documents, reconnect, invalid operations, and multi-server notification behavior.

@@ -159,7 +159,7 @@ public:
   struct Element {
     OpId id;
     std::optional<OpId> previous;
-    char value{};
+    std::string value;
     bool removed{};
   };
 
@@ -168,8 +168,8 @@ public:
     OpId target;
   };
 
-  OpId insert_after(std::optional<OpId> previous, char value, OpId id);
-  std::optional<OpId> insert_at(std::size_t index, char value, OpId id);
+  OpId insert_after(std::optional<OpId> previous, std::string value, OpId id);
+  std::optional<OpId> insert_at(std::size_t index, std::string value, OpId id);
   std::vector<OpId> erase_range(std::size_t index, std::size_t count);
   void erase(const OpId &id);
   OpId erase_with(OpId delete_id, OpId target);

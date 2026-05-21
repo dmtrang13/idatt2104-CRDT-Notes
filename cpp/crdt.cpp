@@ -52,8 +52,10 @@ void LamportClock::observe(const OpId &remote) {
   counter = std::max(counter, remote.counter);
 }
 
-OpId RgaText::insert_after(std::optional<OpId> previous, char value, OpId id) {
-  Element element{id, std::move(previous), value, pending_deletes.contains(id)};
+OpId RgaText::insert_after(std::optional<OpId> previous, std::string value,
+                            OpId id) {
+  Element element{id, std::move(previous), std::move(value),
+                  pending_deletes.contains(id)};
   auto [it, inserted] = elements.emplace(id, element);
   if (!inserted) {
     const bool same_previous = it->second.previous == element.previous;
@@ -65,9 +67,10 @@ OpId RgaText::insert_after(std::optional<OpId> previous, char value, OpId id) {
   return id;
 }
 
-std::optional<OpId> RgaText::insert_at(std::size_t index, char value, OpId id) {
+std::optional<OpId> RgaText::insert_at(std::size_t index, std::string value,
+                                       OpId id) {
   auto previous = predecessor_for_insert(index);
-  insert_after(previous, value, id);
+  insert_after(previous, std::move(value), id);
   return id;
 }
 
@@ -139,7 +142,7 @@ void RgaText::merge(const RgaText &other) {
 std::string RgaText::str() const {
   std::string result;
   for (const Element *element : visible_order()) {
-    result.push_back(element->value);
+    result += element->value;
   }
   return result;
 }
@@ -154,7 +157,7 @@ std::string RgaText::columnar_encoding() const {
     } else {
       out << "ROOT";
     }
-    out << ",," << csv_field(std::string(1, element.value)) << ","
+    out << ",," << csv_field(element.value) << ","
         << (element.removed ? "true" : "false") << "\n";
   }
 

@@ -44,21 +44,21 @@ void run_tests() {
   expect(left.tags.contains("networking"), "AWSet merge should keep remote add");
   expect(left.tags.values() == right.tags.values(), "AWSets should converge");
 
-  auto h = left.body.insert_after(std::nullopt, 'H', left.next());
-  auto i = right.body.insert_after(std::nullopt, 'i', right.next());
+  auto h = left.body.insert_after(std::nullopt, "H", left.next());
+  auto i = right.body.insert_after(std::nullopt, "i", right.next());
   left.body.merge(right.body);
   right.body.merge(left.body);
   left.body.erase_with(left.next(), h);
-  right.body.insert_after(i, '!', right.next());
+  right.body.insert_after(i, "!", right.next());
   left.merge_from(right);
   right.merge_from(left);
   expect(left.body.str() == right.body.str(), "RGA text should converge");
   expect(left.body.str() == "i!", "RGA text should preserve expected order");
 
   crdt::Replica editor("editor");
-  editor.body.insert_at(0, 'H', editor.next());
-  editor.body.insert_at(1, 'i', editor.next());
-  editor.body.insert_at(1, '!', editor.next());
+  editor.body.insert_at(0, "H", editor.next());
+  editor.body.insert_at(1, "i", editor.next());
+  editor.body.insert_at(1, "!", editor.next());
   expect(editor.body.str() == "H!i", "RGA insert_at should find predecessor");
   auto erased = editor.body.erase_range(1, 1);
   expect(erased.size() == 1, "RGA erase_range should return erased targets");
@@ -66,29 +66,29 @@ void run_tests() {
 
   crdt::Replica slow("slow");
   crdt::Replica fast("fast");
-  fast.body.insert_after(std::nullopt, 'x', fast.next());
-  fast.body.insert_after(std::nullopt, 'y', fast.next());
+  fast.body.insert_after(std::nullopt, "x", fast.next());
+  fast.body.insert_after(std::nullopt, "y", fast.next());
   slow.merge_from(fast);
   expect(slow.next().counter == 3,
          "Replica merge should observe remote Lamport history");
 
   crdt::RgaText duplicate;
   crdt::OpId duplicate_id{1, "replica"};
-  duplicate.insert_after(std::nullopt, 'a', duplicate_id);
-  duplicate.insert_after(std::nullopt, 'a', duplicate_id);
+  duplicate.insert_after(std::nullopt, "a", duplicate_id);
+  duplicate.insert_after(std::nullopt, "a", duplicate_id);
   expect(duplicate.str() == "a", "Identical duplicate insert should be idempotent");
   expect_throws(
-      [&] { duplicate.insert_after(std::nullopt, 'b', duplicate_id); },
+      [&] { duplicate.insert_after(std::nullopt, "b", duplicate_id); },
       "Conflicting duplicate insert should be rejected");
 
   crdt::RgaText dangling_left;
   crdt::RgaText dangling_right;
   crdt::OpId parent{1, "remote"};
   crdt::OpId child{2, "remote"};
-  dangling_left.insert_after(parent, 'b', child);
+  dangling_left.insert_after(parent, "b", child);
   expect(dangling_left.str().empty(),
          "Dangling predecessor should stay hidden before parent arrives");
-  dangling_right.insert_after(std::nullopt, 'a', parent);
+  dangling_right.insert_after(std::nullopt, "a", parent);
   dangling_left.merge(dangling_right);
   expect(dangling_left.str() == "ab",
          "Dangling predecessor should become visible after parent arrives");
@@ -96,7 +96,7 @@ void run_tests() {
   crdt::RgaText deletes;
   crdt::OpId insert_id{1, "csv"};
   crdt::OpId delete_id{2, "csv"};
-  deletes.insert_after(std::nullopt, ',', insert_id);
+  deletes.insert_after(std::nullopt, ",", insert_id);
   deletes.erase_with(delete_id, insert_id);
   const std::string csv = deletes.columnar_encoding();
   expect(csv.find("delete,2@csv,,1@csv,,true") != std::string::npos,
@@ -106,7 +106,7 @@ void run_tests() {
 
   crdt::RgaText repeated_a;
   crdt::RgaText repeated_b;
-  repeated_a.insert_after(std::nullopt, 'z', {1, "same"});
+  repeated_a.insert_after(std::nullopt, "z", {1, "same"});
   repeated_b.merge(repeated_a);
   repeated_b.merge(repeated_a);
   repeated_a.merge(repeated_b);
