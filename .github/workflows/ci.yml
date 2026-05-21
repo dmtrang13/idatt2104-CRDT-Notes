@@ -20,15 +20,15 @@ jobs:
           sudo apt-get install -y cmake ninja-build g++
 
       - name: Configure
-        working-directory: backend/main
+        working-directory: cpp
         run: cmake --preset linux-debug
 
       - name: Build
-        working-directory: backend/main
+        working-directory: cpp
         run: cmake --build --preset linux-debug
 
       - name: Test
-        working-directory: backend/main
+        working-directory: cpp
         run: ctest --test-dir build-linux --output-on-failure
 
   frontend:
@@ -45,11 +45,11 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        working-directory: frontend
+        working-directory: backend
         run: npm install
 
       - name: Check server syntax
-        working-directory: frontend
+        working-directory: backend
         run: npm run check
 
   docker:

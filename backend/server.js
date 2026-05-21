@@ -2,7 +2,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const crypto = require("crypto");
-const { WebSocketServer } = require("ws");
+const { WebSocket, WebSocketServer } = require("ws");
 
 const HTTP_PORT = Number(process.env.HTTP_PORT || 3000);
 const WS_PORT = Number(process.env.WS_PORT || 3001);
@@ -11,8 +11,10 @@ const DEFAULT_DOCUMENT_ID = "default";
 const MAX_MESSAGE_BYTES = Number(process.env.MAX_MESSAGE_BYTES || 256 * 1024);
 const MAX_OP_VALUE_CHARS = Number(process.env.MAX_OP_VALUE_CHARS || 1);
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
+const ALLOW_URL_TOKENS = process.env.ALLOW_URL_TOKENS === "true";
 const REQUIRE_AUTH =
   process.env.REQUIRE_AUTH === "true" || process.env.NODE_ENV === "production";
+const SERVER_INSTANCE_ID = crypto.randomUUID();
 
 const clients = new Set();
 const documents = new Map();
@@ -97,15 +99,39 @@ function timingSafeEqualString(left, right) {
   );
 }
 
+function parseCookies(cookieHeader = "") {
+  return Object.fromEntries(
+    cookieHeader
+      .split(";")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const idx = entry.indexOf("=");
+        if (idx === -1) return [entry, ""];
+        return [
+          decodeURIComponent(entry.slice(0, idx)),
+          decodeURIComponent(entry.slice(idx + 1)),
+        ];
+      })
+  );
+}
+
 function authorizeRequest(documentId, headers, url) {
   const requiredToken = tokenForDocument(documentId);
   if (!requiredToken) return true;
 
   const authorization = headers.authorization || "";
   const bearerPrefix = "Bearer ";
-  const suppliedToken = authorization.startsWith(bearerPrefix)
-    ? authorization.slice(bearerPrefix.length)
-    : url.searchParams.get("token") || "";
+  const cookies = parseCookies(headers.cookie);
+  let suppliedToken = "";
+
+  if (authorization.startsWith(bearerPrefix)) {
+    suppliedToken = authorization.slice(bearerPrefix.length);
+  } else if (cookies.crdt_token) {
+    suppliedToken = cookies.crdt_token;
+  } else if (ALLOW_URL_TOKENS) {
+    suppliedToken = url.searchParams.get("token") || "";
+  }
 
   return timingSafeEqualString(suppliedToken, requiredToken);
 }
@@ -139,7 +165,7 @@ function loadPgClient() {
     return require("pg").Client;
   } catch {
     throw new Error(
-      "DATABASE_URL is set, but the pg package is not installed. Run npm install in frontend/."
+      "DATABASE_URL is set, but the pg package is not installed. Run npm install in backend/."
     );
   }
 }
@@ -202,7 +228,12 @@ async function initializePersistence() {
   pgClient.on("notification", (message) => {
     if (message.channel !== "crdt_operation") return;
     try {
-      const { document_id: documentId, op } = JSON.parse(message.payload);
+      const {
+        document_id: documentId,
+        op,
+        source_id: sourceId,
+      } = JSON.parse(message.payload);
+      if (sourceId === SERVER_INSTANCE_ID) return;
       if (!isValidDocumentId(documentId) || !isValidOperation(op)) return;
 
       const operations = operationsFor(documentId);
@@ -227,7 +258,11 @@ async function notifyOperation(documentId, op) {
   if (!pgClient) return;
   await pgClient.query("SELECT pg_notify($1, $2)", [
     "crdt_operation",
-    JSON.stringify({ document_id: documentId, op: canonicalOperation(op) }),
+    JSON.stringify({
+      document_id: documentId,
+      op: canonicalOperation(op),
+      source_id: SERVER_INSTANCE_ID,
+    }),
   ]);
 }
 
@@ -287,7 +322,7 @@ function errorMessage(documentId, message) {
 }
 
 function send(client, message) {
-  if (client.ws.readyState === client.ws.OPEN) {
+  if (client.ws.readyState === WebSocket.OPEN) {
     client.ws.send(JSON.stringify(message));
   }
 }
@@ -390,6 +425,14 @@ async function rememberOperation(documentId, op) {
 }
 
 function createHttpServer() {
+  const frontendDir = path.resolve(__dirname, "../frontend");
+  const staticFiles = new Map([
+    ["/editor.html", { file: "editor.html", type: "text/html; charset=utf-8" }],
+    ["/styles.css", { file: "styles.css", type: "text/css; charset=utf-8" }],
+    ["/editor.js", { file: "editor.js", type: "text/javascript; charset=utf-8" }],
+    ["/websocket.js", { file: "websocket.js", type: "text/javascript; charset=utf-8" }],
+  ]);
+
   return http.createServer((req, res) => {
     const url = parseRequestUrl(req.url);
     if (!url) {
@@ -413,18 +456,19 @@ function createHttpServer() {
     }
 
     const normalizedPath = url.pathname === "/" ? "/editor.html" : url.pathname;
-    if (normalizedPath !== "/editor.html") {
+    const asset = staticFiles.get(normalizedPath);
+    if (!asset) {
       sendHttp(res, 404, "Not found");
       return;
     }
 
     try {
-      const content = fs.readFileSync(path.join(__dirname, "editor.html"));
+      const content = fs.readFileSync(path.join(frontendDir, asset.file));
       sendHttp(res, 200, content, {
-        "Content-Type": "text/html; charset=utf-8",
+        "Content-Type": asset.type,
         "Cache-Control": "no-store",
         "Content-Security-Policy":
-          "default-src 'self'; connect-src 'self' ws: wss:; style-src 'unsafe-inline' 'self'; script-src 'unsafe-inline' 'self'",
+          "default-src 'self'; connect-src 'self' ws: wss:; style-src 'self'; script-src 'self'",
       });
     } catch {
       sendHttp(res, 500, "Server error");
@@ -501,7 +545,7 @@ function createWsServer() {
         const result = await rememberOperation(documentId, message.op);
         if (!result.accepted) {
           send(client, errorMessage(documentId, result.reason));
-        } else if (!pgClient) {
+        } else {
           broadcastOperation(documentId, message.op);
         }
       } else if (message.type === "sync-request") {
@@ -528,7 +572,8 @@ async function main() {
   console.log(
     `Security: ${AUTH_TOKEN ? "global token enabled" : "open demo mode"}, ` +
       `${DOCUMENT_TOKENS.size} document token(s), ` +
-      `${ALLOWED_ORIGINS ? `${ALLOWED_ORIGINS.size} allowed origin(s)` : "all origins allowed"}`
+      `${ALLOWED_ORIGINS ? `${ALLOWED_ORIGINS.size} allowed origin(s)` : "all origins allowed"}, ` +
+      `${ALLOW_URL_TOKENS ? "URL tokens enabled" : "URL tokens disabled"}`
   );
 
   const httpServer = createHttpServer();

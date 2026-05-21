@@ -1,5 +1,5 @@
 {
-  "name": "crdt-notes-frontend",
+  "name": "crdt-notes-backend",
   "version": "0.1.0",
   "private": true,
   "type": "commonjs",
