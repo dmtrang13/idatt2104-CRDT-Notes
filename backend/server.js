@@ -90,6 +90,61 @@ function tokenForDocument(documentId) {
   return DOCUMENT_TOKENS.get(documentId) || AUTH_TOKEN || null;
 }
 
+function isKnownToken(token) {
+  return (
+    !!token &&
+    ((AUTH_TOKEN && timingSafeEqualString(token, AUTH_TOKEN)) ||
+      Array.from(DOCUMENT_TOKENS.values()).some((documentToken) =>
+        timingSafeEqualString(token, documentToken)
+      ))
+  );
+}
+
+function tokenFromHeaders(headers) {
+  const authorization = headers.authorization || "";
+  const bearerPrefix = "Bearer ";
+  const cookies = parseCookies(headers.cookie);
+
+  if (authorization.startsWith(bearerPrefix)) {
+    return authorization.slice(bearerPrefix.length);
+  }
+  if (cookies.crdt_token) return cookies.crdt_token;
+  return "";
+}
+
+function hasAuthenticatedSession(headers) {
+  if (!REQUIRE_AUTH && !AUTH_TOKEN && DOCUMENT_TOKENS.size === 0) return true;
+  return isKnownToken(tokenFromHeaders(headers));
+}
+
+function documentsForSession(headers) {
+  const token = tokenFromHeaders(headers);
+  const knownDocumentIds = new Set([
+    DEFAULT_DOCUMENT_ID,
+    ...DOCUMENT_TOKENS.keys(),
+    ...documents.keys(),
+  ]);
+
+  if (!REQUIRE_AUTH && !AUTH_TOKEN && DOCUMENT_TOKENS.size === 0) {
+    return Array.from(knownDocumentIds).sort();
+  }
+
+  if (AUTH_TOKEN && timingSafeEqualString(token, AUTH_TOKEN)) {
+    return Array.from(knownDocumentIds).sort();
+  }
+
+  return Array.from(DOCUMENT_TOKENS.entries())
+    .filter(([, documentToken]) => timingSafeEqualString(token, documentToken))
+    .map(([documentId]) => documentId)
+    .sort();
+}
+
+function canCreateDocuments(headers) {
+  if (!REQUIRE_AUTH && !AUTH_TOKEN && DOCUMENT_TOKENS.size === 0) return true;
+  const token = tokenFromHeaders(headers);
+  return !!AUTH_TOKEN && timingSafeEqualString(token, AUTH_TOKEN);
+}
+
 function timingSafeEqualString(left, right) {
   const leftBuffer = Buffer.from(left);
   const rightBuffer = Buffer.from(right);
@@ -143,6 +198,7 @@ function isOriginAllowed(origin) {
 function sendHttp(res, status, body = "", headers = {}) {
   const reason = {
     200: "OK",
+    302: "Found",
     400: "Bad Request",
     401: "Unauthorized",
     403: "Forbidden",
@@ -158,6 +214,58 @@ function sendHttp(res, status, body = "", headers = {}) {
     ...headers,
   });
   res.end(payload);
+}
+
+function sendJson(res, status, body, headers = {}) {
+  sendHttp(res, status, JSON.stringify(body), {
+    "Content-Type": "application/json; charset=utf-8",
+    ...headers,
+  });
+}
+
+function readRequestBody(req, limit = 4096) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error("request body too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+function cookieOptions() {
+  return [
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    process.env.NODE_ENV === "production" ? "Secure" : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
+}
+
+function setAuthCookie(res, token) {
+  res.setHeader(
+    "Set-Cookie",
+    `crdt_token=${encodeURIComponent(token)}; ${cookieOptions()}`
+  );
+}
+
+function clearAuthCookie(res) {
+  res.setHeader(
+    "Set-Cookie",
+    `crdt_token=; Max-Age=0; ${cookieOptions()}`
+  );
 }
 
 function loadPgClient() {
@@ -427,6 +535,10 @@ async function rememberOperation(documentId, op) {
 function createHttpServer() {
   const frontendDir = path.resolve(__dirname, "../frontend");
   const staticFiles = new Map([
+    ["/login.html", { file: "login.html", type: "text/html; charset=utf-8" }],
+    ["/login.js", { file: "login.js", type: "text/javascript; charset=utf-8" }],
+    ["/home.html", { file: "home.html", type: "text/html; charset=utf-8" }],
+    ["/home.js", { file: "home.js", type: "text/javascript; charset=utf-8" }],
     ["/editor.html", { file: "editor.html", type: "text/html; charset=utf-8" }],
     ["/styles.css", { file: "styles.css", type: "text/css; charset=utf-8" }],
     ["/editor.js", { file: "editor.js", type: "text/javascript; charset=utf-8" }],
@@ -435,10 +547,100 @@ function createHttpServer() {
     ["/crdt_wasm.wasm", { file: "crdt_wasm.wasm", type: "application/wasm" }],
   ]);
 
-  return http.createServer((req, res) => {
+  return http.createServer(async (req, res) => {
     const url = parseRequestUrl(req.url);
     if (!url) {
       sendHttp(res, 400, "Bad request");
+      return;
+    }
+
+    if (url.pathname === "/") {
+      sendHttp(res, 302, "", {
+        Location: hasAuthenticatedSession(req.headers)
+          ? "/home.html"
+          : "/login.html",
+      });
+      return;
+    }
+
+    if (url.pathname === "/session" && req.method === "POST") {
+      try {
+        const body = JSON.parse(await readRequestBody(req));
+        const suppliedToken = typeof body.token === "string" ? body.token : "";
+        const hasDocumentParam =
+          url.searchParams.has("document_id") || url.searchParams.has("doc");
+        const documentId = hasDocumentParam ? documentIdFromUrl(url) : null;
+
+        if (hasDocumentParam && !documentId) {
+          sendJson(res, 400, { error: "Invalid document_id" });
+          return;
+        }
+
+        if (
+          !suppliedToken &&
+          (documentId
+            ? authorizeRequest(documentId, req.headers, url)
+            : hasAuthenticatedSession(req.headers))
+        ) {
+          sendJson(res, 200, { authenticated: true });
+          return;
+        }
+
+        const requiredToken = documentId ? tokenForDocument(documentId) : null;
+        const validToken = requiredToken
+          ? timingSafeEqualString(suppliedToken, requiredToken)
+          : isKnownToken(suppliedToken);
+
+        if (!validToken) {
+          sendJson(res, 401, { error: "Invalid token" });
+          return;
+        }
+        setAuthCookie(res, suppliedToken);
+        sendJson(res, 200, { authenticated: true });
+      } catch {
+        sendJson(res, 400, { error: "Invalid session request" });
+      }
+      return;
+    }
+
+    if (url.pathname === "/session" && req.method === "DELETE") {
+      clearAuthCookie(res);
+      sendJson(res, 200, { authenticated: false });
+      return;
+    }
+
+    if (url.pathname === "/documents" && req.method === "GET") {
+      if (!hasAuthenticatedSession(req.headers)) {
+        sendJson(res, 401, { error: "Not authenticated" });
+        return;
+      }
+
+      sendJson(res, 200, {
+        documents: documentsForSession(req.headers).map((documentId) => ({
+          id: documentId,
+          operations: operationsFor(documentId).size,
+          clients: Array.from(clients).filter(
+            (client) => client.documentId === documentId
+          ).length,
+        })),
+        can_create: canCreateDocuments(req.headers),
+      });
+      return;
+    }
+
+    if (url.pathname === "/documents" && req.method === "POST") {
+      if (!hasAuthenticatedSession(req.headers)) {
+        sendJson(res, 401, { error: "Not authenticated" });
+        return;
+      }
+      if (!canCreateDocuments(req.headers)) {
+        sendJson(res, 403, { error: "This token cannot create documents" });
+        return;
+      }
+
+      const documentId = `doc-${crypto.randomUUID().slice(0, 8)}`;
+      operationsFor(documentId);
+      sendJson(res, 200, { document_id: documentId });
       return;
     }
 
@@ -447,17 +649,26 @@ function createHttpServer() {
       return;
     }
 
-    const documentId = documentIdFromUrl(url);
-    if (!documentId) {
-      sendHttp(res, 400, "Invalid document_id");
-      return;
-    }
-    if (!authorizeRequest(documentId, req.headers, url)) {
-      sendHttp(res, 401, "Unauthorized");
+    if (url.pathname === "/home.html" && !hasAuthenticatedSession(req.headers)) {
+      sendHttp(res, 302, "", { Location: "/login.html" });
       return;
     }
 
-    const normalizedPath = url.pathname === "/" ? "/editor.html" : url.pathname;
+    if (url.pathname === "/editor.html") {
+      const documentId = documentIdFromUrl(url);
+      if (!documentId) {
+        sendHttp(res, 400, "Invalid document_id");
+        return;
+      }
+      if (!authorizeRequest(documentId, req.headers, url)) {
+        sendHttp(res, 302, "", {
+          Location: `/login.html?document_id=${encodeURIComponent(documentId)}`,
+        });
+        return;
+      }
+    }
+
+    const normalizedPath = url.pathname;
     const asset = staticFiles.get(normalizedPath);
     if (!asset) {
       sendHttp(res, 404, "Not found");

@@ -157,6 +157,12 @@ a {
   padding: 24px;
 }
 
+.home-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
 .login-panel {
   width: min(100%, 360px);
 }
@@ -182,6 +188,59 @@ a {
   margin: 0;
   font-size: 13px;
   color: #8a2d2d;
+}
+
+.home-content {
+  width: min(100%, 920px);
+  margin: 0 auto;
+  padding: 28px 18px;
+}
+
+.home-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.home-toolbar h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+#home-status {
+  min-height: 20px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #4c535c;
+}
+
+.document-list {
+  display: grid;
+  gap: 8px;
+}
+
+.document-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #d8d4cc;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #181a1f;
+  text-decoration: none;
+}
+
+.document-item:hover {
+  background: #fdfbf6;
+}
+
+.document-item span {
+  font-size: 13px;
+  color: #626a73;
 }
 
 .sr-only {

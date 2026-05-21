@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CRDT Notes Home</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="home-page">
+      <header>
+        <div class="topbar">
+          <h1>CRDT Notes</h1>
+          <div class="actions">
+            <button id="logout">Log out</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="home-content">
+        <div class="home-toolbar">
+          <h2>Documents</h2>
+          <button id="create-document">Create New</button>
+        </div>
+        <p id="home-status" role="status">Loading documents...</p>
+        <div id="document-list" class="document-list"></div>
+      </section>
+    </main>
+    <script src="/home.js"></script>
+  </body>
+</html>
