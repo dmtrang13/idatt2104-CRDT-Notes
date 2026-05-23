@@ -248,9 +248,7 @@ const socket = window.createCrdtSocket({
     dot.classList.remove("open");
     if (!opened) {
       status.textContent = "connection rejected";
-      const loginUrl = new URL("/login.html", location.href);
-      loginUrl.searchParams.set("document_id", documentId);
-      clientsEl.innerHTML = `<a href="${loginUrl}">log in</a>`;
+      clientsEl.innerHTML = `<a href="/home.html">home</a>`;
       return false;
     }
   },
@@ -405,9 +403,7 @@ try {
     socket.connect();
   } else {
     status.textContent = "not authenticated";
-    const loginUrl = new URL("/login.html", location.href);
-    loginUrl.searchParams.set("document_id", documentId);
-    clientsEl.innerHTML = `<a href="${loginUrl}">log in</a>`;
+    clientsEl.innerHTML = `<a href="/home.html">home</a>`;
   }
 } catch (error) {
   console.error("Authentication failed:", error);

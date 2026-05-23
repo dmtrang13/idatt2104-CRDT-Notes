@@ -117,32 +117,52 @@ function hasAuthenticatedSession(headers) {
   return isKnownToken(tokenFromHeaders(headers));
 }
 
-function documentsForSession(headers) {
-  const token = tokenFromHeaders(headers);
+function allDocumentIds() {
   const knownDocumentIds = new Set([
     DEFAULT_DOCUMENT_ID,
     ...DOCUMENT_TOKENS.keys(),
     ...documents.keys(),
   ]);
-
-  if (!REQUIRE_AUTH && !AUTH_TOKEN && DOCUMENT_TOKENS.size === 0) {
-    return Array.from(knownDocumentIds).sort();
-  }
-
-  if (AUTH_TOKEN && timingSafeEqualString(token, AUTH_TOKEN)) {
-    return Array.from(knownDocumentIds).sort();
-  }
-
-  return Array.from(DOCUMENT_TOKENS.entries())
-    .filter(([, documentToken]) => timingSafeEqualString(token, documentToken))
-    .map(([documentId]) => documentId)
-    .sort();
+  return Array.from(knownDocumentIds).sort();
 }
 
-function canCreateDocuments(headers) {
+function hasWorkspaceAccess(headers) {
   if (!REQUIRE_AUTH && !AUTH_TOKEN && DOCUMENT_TOKENS.size === 0) return true;
   const token = tokenFromHeaders(headers);
   return !!AUTH_TOKEN && timingSafeEqualString(token, AUTH_TOKEN);
+}
+
+function visibleDocumentIds(headers) {
+  if (hasWorkspaceAccess(headers)) return allDocumentIds();
+  return allDocumentIds().filter((documentId) =>
+    canAccessDocument(documentId, headers)
+  );
+}
+
+function canCreateDocuments(headers) {
+  return hasWorkspaceAccess(headers);
+}
+
+function canAccessDocument(documentId, headers) {
+  return authorizeRequest(documentId, headers, new URL("/", "http://localhost"));
+}
+
+function tokenCanAccessDocument(documentId, token) {
+  const requiredToken = tokenForDocument(documentId);
+  if (!requiredToken) return true;
+  return (
+    (AUTH_TOKEN && timingSafeEqualString(token, AUTH_TOKEN)) ||
+    timingSafeEqualString(token, requiredToken)
+  );
+}
+
+function shareTokenForDocument(documentId, headers) {
+  const documentToken = DOCUMENT_TOKENS.get(documentId);
+  if (!documentToken || !canAccessDocument(documentId, headers)) return null;
+  if (hasWorkspaceAccess(headers)) return documentToken;
+
+  const token = tokenFromHeaders(headers);
+  return timingSafeEqualString(token, documentToken) ? documentToken : null;
 }
 
 function timingSafeEqualString(left, right) {
@@ -188,7 +208,10 @@ function authorizeRequest(documentId, headers, url) {
     suppliedToken = url.searchParams.get("token") || "";
   }
 
-  return timingSafeEqualString(suppliedToken, requiredToken);
+  return (
+    (AUTH_TOKEN && timingSafeEqualString(suppliedToken, AUTH_TOKEN)) ||
+    timingSafeEqualString(suppliedToken, requiredToken)
+  );
 }
 
 function isOriginAllowed(origin) {
@@ -586,9 +609,8 @@ function createHttpServer() {
           return;
         }
 
-        const requiredToken = documentId ? tokenForDocument(documentId) : null;
-        const validToken = requiredToken
-          ? timingSafeEqualString(suppliedToken, requiredToken)
+        const validToken = documentId
+          ? tokenCanAccessDocument(documentId, suppliedToken)
           : isKnownToken(suppliedToken);
 
         if (!validToken) {
@@ -616,8 +638,10 @@ function createHttpServer() {
       }
 
       sendJson(res, 200, {
-        documents: documentsForSession(req.headers).map((documentId) => ({
+        documents: visibleDocumentIds(req.headers).map((documentId) => ({
           id: documentId,
+          can_open: canAccessDocument(documentId, req.headers),
+          share_token: shareTokenForDocument(documentId, req.headers),
           operations: operationsFor(documentId).size,
           clients: Array.from(clients).filter(
             (client) => client.documentId === documentId
@@ -661,9 +685,7 @@ function createHttpServer() {
         return;
       }
       if (!authorizeRequest(documentId, req.headers, url)) {
-        sendHttp(res, 302, "", {
-          Location: `/login.html?document_id=${encodeURIComponent(documentId)}`,
-        });
+        sendHttp(res, 302, "", { Location: "/login.html" });
         return;
       }
     }
