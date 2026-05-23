@@ -33,6 +33,11 @@ void run_tests() {
   right.merge_from(left);
   expect(left.title.value() == right.title.value(),
          "LWW registers should converge");
+  crdt::LwwRegister<std::string> title_tie;
+  title_tie.assign("left", {1, "left"});
+  title_tie.assign("right", {1, "right"});
+  expect(title_tie.value() == "right",
+         "LWW register should resolve equal counters by replica id");
 
   left.tags.add("crdt", left.next());
   right.tags.add("networking", right.next());
@@ -43,6 +48,12 @@ void run_tests() {
   expect(left.tags.contains("crdt"), "AWSet add should win over remove");
   expect(left.tags.contains("networking"), "AWSet merge should keep remote add");
   expect(left.tags.values() == right.tags.values(), "AWSets should converge");
+  crdt::AwSet<std::string> removed_tag;
+  removed_tag.add("temporary", {1, "tags"});
+  removed_tag.remove("temporary");
+  removed_tag.remove("temporary");
+  expect(!removed_tag.contains("temporary"),
+         "AWSet repeated remove should remain idempotent");
 
   auto h = left.body.insert_after(std::nullopt, "H", left.next());
   auto i = right.body.insert_after(std::nullopt, "i", right.next());
@@ -98,11 +109,19 @@ void run_tests() {
   crdt::OpId delete_id{2, "csv"};
   deletes.insert_after(std::nullopt, ",", insert_id);
   deletes.erase_with(delete_id, insert_id);
+  deletes.erase_with(delete_id, insert_id);
+  expect(deletes.str().empty(), "Identical duplicate delete should be idempotent");
   const std::string csv = deletes.columnar_encoding();
   expect(csv.find("delete,2@csv,,1@csv,,true") != std::string::npos,
          "Columnar encoding should include first-class delete operations");
   expect(csv.find("\",\"") != std::string::npos,
          "Columnar encoding should quote comma characters");
+
+  crdt::RgaText pending_delete;
+  pending_delete.erase_with({2, "late"}, {1, "late"});
+  pending_delete.insert_after(std::nullopt, "x", {1, "late"});
+  expect(pending_delete.str().empty(),
+         "Delete received before insert should hide the later insert");
 
   crdt::RgaText repeated_a;
   crdt::RgaText repeated_b;

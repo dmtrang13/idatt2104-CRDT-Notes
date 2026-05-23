@@ -6,8 +6,8 @@ on:
   pull_request:
 
 jobs:
-  backend:
-    name: Backend C++
+  cpp:
+    name: C++
     runs-on: ubuntu-latest
 
     steps:
@@ -31,8 +31,8 @@ jobs:
         working-directory: cpp
         run: ctest --test-dir build-linux --output-on-failure
 
-  frontend:
-    name: Frontend Node
+  node:
+    name: Backend and Frontend JS
     runs-on: ubuntu-latest
 
     steps:
@@ -46,11 +46,22 @@ jobs:
 
       - name: Install dependencies
         working-directory: backend
-        run: npm install
+        run: npm ci
 
       - name: Check server syntax
         working-directory: backend
         run: npm run check
+
+      - name: Check frontend syntax
+        run: |
+          node --check frontend/stores/home.js
+          node --check frontend/stores/login.js
+          node --check frontend/stores/editor.js
+          node --check frontend/stores/websocket.js
+
+      - name: Run backend and frontend tests
+        working-directory: backend
+        run: npm test
 
   docker:
     name: Docker Compose
