@@ -2,28 +2,57 @@
 
 CRDT Notes is a small browser-based collaborative text editor that demonstrates conflict-free replication between clients. The project is split into a C++ CRDT core, a Node.js HTTP/WebSocket/PostgreSQL backend, and a browser frontend.
 
-## Repository
+## Contributors 
+- Raghd Said Mahmoud Madhun ([@Raghdm24](https://github.com/Raghdm24))
+- Trang Minh Duong ([@dmtrang13](https://github.com/dmtrang13))
+
+## Github Repository
 
 [dmtrang13/idatt2104-CRDT-Notes](https://github.com/dmtrang13/idatt2104-CRDT-Notes.git)
 
-## Layout
+## Table of Contents
+- [Contributors](#contributors)
+- [Table of Contents](#table-of-contents)
+- [Project Structure](#project-structure)
+- [Implemented Functionality](#implemented-functionality)
+- [Dependencies](#dependencies)
+- [Build And Test C++](#build-and-test-c)
+  - [Windows With MSYS2 UCRT64](#windows-with-msys2-ucrt64)
+  - [Linux](#linux)
+  - [macOS](#macos)
+  - [Direct Compile](#direct-compile)
+- [Run locally](#run-locally)
+- [Build The WASM Wrapper](#build-the-wasm-wrapper)
+- [PostgreSQL](#postgresql)
+- [Auth And Limits](#auth-and-limits)
+- [Docker](#docker)
+- [Testing](#testing)
+- [Important Components](#important-components)
+- [External Code](#external-code)
+- [Future Improvements](#future-improvements)
+
+## Project structure
 
 ```text
-frontend/
-  editor.html      # browser shell
-  editor.js        # UI and local editor state
-  websocket.js     # WebSocket connection, reconnect, sync messages
-  styles.css       # editor styling
-
 backend/
   server.js        # HTTP, WebSocket, validation, auth, PostgreSQL
-  crdt_bridge.cpp  # placeholder for future C++/WASM/native bridge
+  test/            # Node backend tests
 
 cpp/
   crdt.hpp         # CRDT API
   crdt.cpp         # CRDT implementation
   crdt_wasm.cpp    # Emscripten wrapper for browser use
   crdt_tests.cpp   # built-in tests
+
+database/
+  schema.sql       # Database schema queries
+
+frontend/
+  views/           # login, home, and editor HTML pages
+  stores/          # login, home, editor, and WebSocket browser scripts
+  test/            # Node-based frontend tests
+  styles.css       # shared styling
+  crdt_wasm.*      # optional generated WASM artifacts
 ```
 
 ## Implemented Functionality
@@ -32,14 +61,15 @@ cpp/
 - Deterministic merge logic for LWW registers, add-wins sets, and RGA text.
 - First-class insert and delete operations for RGA text.
 - Browser editor with local pending-operation storage, reconnect, and missing-op sync.
+- Login page, document home page, document creation, and invite-link sharing.
 - Node backend using `ws` for WebSockets and `pg` for optional PostgreSQL persistence.
 - Optional Emscripten/WASM wrapper for using the C++ RGA from the browser.
 - Document separation with `document_id`.
-- Optional auth token, per-document tokens, and WebSocket origin allowlist.
+- Hybrid auth: workspace token for all documents, per-document tokens for shared-note invites, and WebSocket origin allowlist.
 - PostgreSQL operation table keyed by `(document_id, id)`.
 - Dependency indexes and a snapshot table prepared for later compaction work.
 - Docker Compose setup for the backend and PostgreSQL.
-- GitHub Actions workflow for C++, Node syntax checking, and Docker Compose validation.
+- GitHub Actions workflow for C++, backend/frontend Node tests, and Docker Compose validation.
 
 This is still a proof-of-concept, not a production editor. The frontend diff is still O(n^2), snapshots are not yet used, and full production-grade auth/authorization is outside the current scope.
 
@@ -97,7 +127,7 @@ Install backend dependencies and start the server:
 
 ```sh
 cd backend
-npm install
+npm ci
 node server.js
 ```
 
@@ -107,16 +137,22 @@ Open:
 http://localhost:3000
 ```
 
-Open two tabs with the same `document_id` to see operations converge:
+The root page redirects to login or home:
 
 ```text
-http://localhost:3000/?document_id=notes-1
+/ -> /login.html -> /home.html -> /editor.html?document_id=...
 ```
 
-If the WebSocket server is not on port `3001`, pass `ws_port`:
+Use the workspace token (`AUTH_TOKEN`) to see all documents and create new ones. Use a document token to open only the shared document attached to that token. Share buttons on the home page copy invite links on the form:
 
 ```text
-http://localhost:3000/?document_id=notes-1&ws_port=3001
+http://localhost:3000/login.html?token=...
+```
+
+Open two browser tabs for the same document from the home page to see operations converge. If the WebSocket server is not on port `3001`, pass `ws_port` on the editor URL:
+
+```text
+http://localhost:3000/editor.html?document_id=notes-1&ws_port=3001
 ```
 
 `ws_port=same` is useful only when HTTP and WebSocket traffic are served through the same host and port, such as behind a reverse proxy.
@@ -159,7 +195,13 @@ The backend can run open for local demos. For protected mode, set either `AUTH_T
 AUTH_TOKEN="shared-secret" node server.js
 ```
 
-Requests should send the token with `Authorization: Bearer ...` or a `crdt_token` cookie. URL tokens are disabled by default because they can leak through browser history, logs, screenshots, and referrers. They can be enabled for local demos with:
+Requests should send the token with `Authorization: Bearer ...` or a `crdt_token` cookie. The browser login page sets the `crdt_token` cookie through `POST /session`.
+
+`AUTH_TOKEN` is the workspace token. It can open every document, create new documents, and copy invite links for documents that have document tokens configured.
+
+`DOCUMENT_TOKENS` are per-note invite tokens. A user logged in with a document token sees only the document(s) that token can open and cannot create new documents. Share links use `/login.html?token=...` so recipients do not need to paste the token manually.
+
+URL tokens for direct WebSocket auth are disabled by default because they can leak through browser history, logs, screenshots, and referrers. They can be enabled for local demos with:
 
 ```sh
 ALLOW_URL_TOKENS=true
@@ -208,21 +250,57 @@ docker compose up --build
 
 ## Testing
 
-JavaScript syntax check:
+Backend and frontend tests:
+
+```sh
+cd backend
+npm test
+```
+
+Only backend tests:
+
+```sh
+cd backend
+npm run test:backend
+```
+
+Only frontend tests:
+
+```sh
+cd backend
+npm run test:frontend
+```
+
+JavaScript syntax checks:
 
 ```sh
 cd backend
 npm run check
+cd ..
+node --check frontend/stores/home.js
+node --check frontend/stores/login.js
+node --check frontend/stores/editor.js
+node --check frontend/stores/websocket.js
 ```
 
-C++ tests:
+C++ tests after building:
 
 ```sh
 cd cpp
+cmake --preset linux-debug
+cmake --build --preset linux-debug
+ctest --test-dir build-linux --output-on-failure
+```
+
+On Windows with the existing UCRT build directory:
+
+```powershell
+cd cpp
+cmake --build build-ucrt
 ctest --test-dir build-ucrt --output-on-failure
 ```
 
-Use `build-linux` or `build-macos` for the matching preset on those platforms.
+Use `build-macos` for the macOS preset.
 
 Docker Compose validation:
 
@@ -240,13 +318,11 @@ The C++ core in `cpp/crdt.hpp` and `cpp/crdt.cpp` contains:
 - `RgaText`, a replicated growable array for text with inserts, deletes, and tombstones.
 - `Replica`, which combines the CRDT structures into one document replica.
 
-The frontend has its own JavaScript RGA model for the browser demo. `frontend/editor.js` owns UI state and rendering, while `frontend/websocket.js` owns connection, reconnect, send, and sync behavior.
+The frontend has its own JavaScript RGA model for the browser demo. `frontend/stores/editor.js` owns UI state and rendering, while `frontend/stores/websocket.js` owns connection, reconnect, send, and sync behavior. `frontend/stores/login.js` and `frontend/stores/home.js` handle session login, invite links, document listing, and document creation.
 
-The backend in `backend/server.js` serves frontend files, validates WebSocket messages, persists operations, performs missing-op sync, and uses PostgreSQL `LISTEN/NOTIFY` so multiple server processes can observe new operations.
+The backend in `backend/server.js` serves frontend files from `frontend/views` and `frontend/stores`, validates HTTP/WebSocket auth, validates WebSocket messages, persists operations, performs missing-op sync, and uses PostgreSQL `LISTEN/NOTIFY` so multiple server processes can observe new operations.
 
 `cpp/crdt_wasm.cpp` exposes `WasmDocument` with `insertAfter`, `erase`, `eraseWith`, `text`, and `columns` for Emscripten builds.
-
-`backend/crdt_bridge.cpp` is a placeholder boundary for later connecting the Node backend to the C++ CRDT core through a native addon, child process, or WebAssembly.
 
 ## External Code
 
@@ -254,11 +330,10 @@ The implementation uses standard CRDT ideas: Lamport timestamps, last-writer-win
 
 No external CRDT library is used.
 
-## Future Work
+## Future Improvement
 
-- Connect the backend directly to the C++ CRDT core through `backend/crdt_bridge.cpp`.
 - Replace the O(n^2) frontend LCS diff with incremental edit handling.
 - Finish moving frontend RGA storage and visible-order lookup into WASM.
 - Write and use snapshots to avoid full replay forever.
 - Add tombstone garbage collection once replicas have acknowledged operations.
-- Add richer tests for restart replay, duplicate DB conflicts, two documents, reconnect, invalid operations, and multi-server notification behavior.
+- Add richer tests for restart replay, duplicate DB conflicts, reconnect, invalid operations, and multi-server notification behavior.
