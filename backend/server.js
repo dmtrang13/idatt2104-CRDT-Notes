@@ -535,14 +535,14 @@ async function rememberOperation(documentId, op) {
 function createHttpServer() {
   const frontendDir = path.resolve(__dirname, "../frontend");
   const staticFiles = new Map([
-    ["/login.html", { file: "login.html", type: "text/html; charset=utf-8" }],
-    ["/login.js", { file: "login.js", type: "text/javascript; charset=utf-8" }],
-    ["/home.html", { file: "home.html", type: "text/html; charset=utf-8" }],
-    ["/home.js", { file: "home.js", type: "text/javascript; charset=utf-8" }],
-    ["/editor.html", { file: "editor.html", type: "text/html; charset=utf-8" }],
+    ["/login.html", { file: "views/login.html", type: "text/html; charset=utf-8" }],
+    ["/login.js", { file: "stores/login.js", type: "text/javascript; charset=utf-8" }],
+    ["/home.html", { file: "views/home.html", type: "text/html; charset=utf-8" }],
+    ["/home.js", { file: "stores/home.js", type: "text/javascript; charset=utf-8" }],
+    ["/editor.html", { file: "views/editor.html", type: "text/html; charset=utf-8" }],
     ["/styles.css", { file: "styles.css", type: "text/css; charset=utf-8" }],
-    ["/editor.js", { file: "editor.js", type: "text/javascript; charset=utf-8" }],
-    ["/websocket.js", { file: "websocket.js", type: "text/javascript; charset=utf-8" }],
+    ["/editor.js", { file: "stores/editor.js", type: "text/javascript; charset=utf-8" }],
+    ["/websocket.js", { file: "stores/websocket.js", type: "text/javascript; charset=utf-8" }],
     ["/crdt_wasm.js", { file: "crdt_wasm.js", type: "text/javascript; charset=utf-8" }],
     ["/crdt_wasm.wasm", { file: "crdt_wasm.wasm", type: "application/wasm" }],
   ]);
