@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "check": "node --check server.js",
+    "test": "node --test test/*.test.js ../frontend/test/*.test.js",
+    "test:backend": "node --test test/*.test.js",
+    "test:frontend": "node --test ../frontend/test/*.test.js",
     "build:wasm": "em++ ../cpp/crdt.cpp ../cpp/crdt_wasm.cpp -std=c++20 --bind -O3 -s MODULARIZE=1 -s EXPORT_NAME=createCrdtModule -o ../frontend/crdt_wasm.js"
   },
   "dependencies": {

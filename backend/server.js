@@ -828,7 +828,24 @@ async function main() {
   });
 }
 
-main().catch((error) => {
-  console.error("Server startup failed:", error.message);
-  process.exit(1);
-});
+module.exports = {
+  createHttpServer,
+  createWsServer,
+  main,
+  __test: {
+    allDocumentIds,
+    authorizeRequest,
+    canAccessDocument,
+    canCreateDocuments,
+    hasAuthenticatedSession,
+    isKnownToken,
+    tokenCanAccessDocument,
+  },
+};
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error("Server startup failed:", error.message);
+    process.exit(1);
+  });
+}
